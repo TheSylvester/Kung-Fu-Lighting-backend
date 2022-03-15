@@ -1,0 +1,28 @@
+{
+  "name": "kung-fu-lighting-backend",
+  "version": "0.0.1",
+  "description": "Everybody is kung-fu-lighting to find profiles for fighting!  Backend to scrape Reddit API for video & download link pairs for archival on approval basis for catalog and provide a Rest API for search based on device compatibility",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheSylvester/Kung-Fu-Lighting-backend.git"
+  },
+  "author": "Sylvester Wong",
+  "license": "GPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/TheSylvester/Kung-Fu-Lighting-backend/issues"
+  },
+  "homepage": "https://github.com/TheSylvester/Kung-Fu-Lighting-backend#readme",
+  "dependencies": {
+    "express": "^4.17.3",
+    "mongoose": "^6.2.6"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.15"
+  }
+}
