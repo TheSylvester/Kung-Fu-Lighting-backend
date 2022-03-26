@@ -19,7 +19,10 @@
   },
   "homepage": "https://github.com/TheSylvester/Kung-Fu-Lighting-backend#readme",
   "dependencies": {
+    "axios": "^0.26.1",
     "express": "^4.17.3",
+    "linkifyjs": "^3.0.5",
+    "markdown-link-extractor": "^2.0.1",
     "mongoose": "^6.2.6"
   },
   "devDependencies": {
