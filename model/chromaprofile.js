@@ -1,16 +1,5 @@
 const mongoose = require("mongoose");
 
-// const extracted_data = {
-//     id36,
-//     title,
-//     link,
-//     OP,
-//     OP_id,
-//     reddit_likes,
-//     videoURL,
-//     audioURL
-//   };
-
 const chromaprofileSchema = new mongoose.Schema({
   id36: {
     type: String,
@@ -28,9 +17,14 @@ const chromaprofileSchema = new mongoose.Schema({
   },
   OP: String,
   OP_id: String,
-  reddit_likes: String,
+  reddit_likes: Number,
+  created_utc: Number,
+  scraped_utc: Number,
   videoURL: String,
-  audioURL: String
+  audioURL: String,
+  thumbnail: String,
+  OPcommentLinks: [{ type: String }],
+  OProotComments: [{ type: String }]
 });
 
 chromaprofileSchema.set("toJSON", {
