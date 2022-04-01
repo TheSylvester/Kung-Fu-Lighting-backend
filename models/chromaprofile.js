@@ -35,4 +35,4 @@ chromaprofileSchema.set("toJSON", {
   }
 });
 
-module.exports = mongoose.model("ChromaProfile", chromaprofileSchema);
+module.exports = mongoose.model("Chromaprofile", chromaprofileSchema);

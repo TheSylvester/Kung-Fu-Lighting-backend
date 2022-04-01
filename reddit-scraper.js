@@ -3,10 +3,11 @@ const markdownLinkExtractor = require("markdown-link-extractor");
 
 const ChromaProfilesURL = "http://www.reddit.com/r/ChromaProfiles";
 
-const GetRedditJSON = async (after = null) => {
-  const pagination = `?after=${after}`;
+const GetRedditJSON = async (limit = 25, after = null) => {
+  const limitString = `?limit=${limit}`;
+  const pagination = `&after=${after}`;
   const response = await axios.get(
-    `${ChromaProfilesURL}.json${after ? pagination : ""}`
+    `${ChromaProfilesURL}.json${limitString + (after ? pagination : "")}`
   );
   return response.data;
 };
@@ -43,10 +44,10 @@ const Extract_MarkdownLinkExtractor = (comment) => {
 };
 
 const ExtractOPCommentLinks = (comments, OP = null) => {
-  /**
+  /*****************************************************
    * accepts raw json comments listing t1_ from reddit
    * Extract with markdown-link-extractor
-   */
+   *****************************************************/
 
   let OPcommentLinks = [];
 
@@ -56,7 +57,9 @@ const ExtractOPCommentLinks = (comments, OP = null) => {
 
       const { raw, href } = Extract_MarkdownLinkExtractor(commentBody);
 
-      OPcommentLinks.push(href);
+      if (href.length > 0) {
+        href.forEach((link) => OPcommentLinks.push(link));
+      }
     }
 
     /* recursively search comment replies */
@@ -71,7 +74,28 @@ const ExtractOPCommentLinks = (comments, OP = null) => {
     }
   });
 
-  return OPcommentLinks;
+  const returnLinks = OPcommentLinks.map((link) => ConvertGDriveLink(link));
+
+  return returnLinks;
+};
+
+const ConvertGDriveLink = (link) => {
+  /************************************************************************
+   * Receives a url (for a google drive link) and returns a download link
+   *
+   * (?:https:\/\/drive.google.com\/file\/d\/)(.*)(?:\/view\?usp=sharing)
+   ************************************************************************/
+
+  const gdrive_regex =
+    /(?:https:\/\/drive\.google\.com\/file\/d\/)(.*)(?:\/view\?usp=sharing)/gi;
+  const match = gdrive_regex.exec(link);
+
+  if (!match) return link; // short circuit link
+
+  const fileID = match[1]; // match[1] will be the 1st capture group (.*)
+  const downloadURL = `https://drive.google.com/uc?id=${fileID}&export=download`;
+
+  return downloadURL;
 };
 
 const ExtractDataFromPost = (postJSON) => {
@@ -112,53 +136,56 @@ const ExtractDataFromPost = (postJSON) => {
     thumbnail
   };
 
-  console.log("postJSON: ", postJSON);
-  console.log("ExtractDataFromPost: ", extracted_data);
-
   return extracted_data;
 };
 
-const ScrapeRedditForProfiles = async (limit = 5) => {
+const ScrapeRedditForProfiles = async (limit = 25, after = null) => {
   /*
    * Scrapes Reddit json and returns an array of profiles
    * from reddit posts in /r/ChromaProfiles with video in them
    * we find comments made by OP and any links they left,
    * which we assume to be download links
    */
+
   let profilesArray = [];
-  let after = null;
+  let redditJSON = await GetRedditJSON(limit, after);
 
-  while (profilesArray.length < limit) {
-    let redditJSON = await GetRedditJSON(after);
-    after = redditJSON?.data?.after;
+  const last =
+    redditJSON?.data
+      ?.after; /* reddit provides after (last t3_id36 in the list) for easy pagination */
 
-    let videoPosts = redditJSON.data.children.filter(
-      (post) => post.data.is_video
-    );
+  let videoPosts = redditJSON.data.children.filter(
+    (post) => post.data.is_video
+  );
 
-    if (!videoPosts || videoPosts.length === 0)
-      continue; /* skip to next while */
+  /* get non-video posts too for inspection, save everything I guess */
+  let nonvideoPosts = redditJSON.data.children.filter(
+    (post) => !post.data.is_video
+  );
 
-    const postData = videoPosts.map((post) => ExtractDataFromPost(post));
+  if (!videoPosts || videoPosts.length === 0)
+    return { profilesArray: [], last }; /* early exit */
 
-    const dataPromises = postData.map(async (post) => {
-      const commentsJSON = await GetCommentsJSON(post.id36);
-      const OPcommentLinks = ExtractOPCommentLinks(commentsJSON, post.OP_id);
-      const OProotComments = ExtractOProotComments(commentsJSON, post.OP_id);
+  const postData = videoPosts.map((post) => ExtractDataFromPost(post));
 
-      // map with async function returns promises
-      return OPcommentLinks || OProotComments
-        ? { ...post, OPcommentLinks, OProotComments }
-        : post;
-    });
-    // wait until all promises complete before assigning
-    const fullData = await Promise.all(dataPromises);
+  const dataPromises = postData.map(async (post) => {
+    const commentsJSON = await GetCommentsJSON(post.id36);
+    const OPcommentLinks = ExtractOPCommentLinks(commentsJSON, post.OP_id);
+    const OProotComments = ExtractOProotComments(commentsJSON, post.OP_id);
 
-    profilesArray = [...profilesArray, ...fullData];
-  }
+    // map with async function returns promises
+    return OPcommentLinks || OProotComments
+      ? { ...post, OPcommentLinks, OProotComments }
+      : post;
+  });
+  // wait until all promises complete before assigning
+  const fullData = await Promise.all(dataPromises);
 
-  return profilesArray;
+  profilesArray = [...profilesArray, ...fullData];
+
+  return { profilesArray, last, nonvideoPosts };
 };
 
 exports.ScrapeRedditForProfiles = ScrapeRedditForProfiles;
 exports.GetRedditJSON = GetRedditJSON;
+exports.MakeGoogleDriveLinkDownloadable = ConvertGDriveLink;

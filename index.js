@@ -1,9 +1,17 @@
+require("dotenv").config();
 const express = require("express");
 const app = express();
+const mongo = require("./services/mongo.js");
+const chromaprofile = require("./models/chromaprofile.js");
 
-const { ScrapeRedditForProfiles, GetRedditJSON } = require("./reddit-scraper");
+const {
+  ScrapeRedditForProfiles,
+  GetRedditJSON,
+  MakeGoogleDriveLinkDownloadable: ConvertGDriveLink
+} = require("./reddit-scraper");
+// const PORT = 3001;
+const PORT = process.env.PORT;
 
-const PORT = 3001;
 app.listen(PORT, () => {
   console.log(`Kung-Fu-Lighting Server running on port ${PORT}`);
 });
@@ -18,25 +26,93 @@ app.get("/videojson/", async (request, response) => {
   return response.send(json.data.children.filter((post) => post.data.is_video));
 });
 
-app.get("/", async (request, response) => {
-  const LIMIT = 5; // min number of video links to get
-  const profilesArray = await ScrapeRedditForProfiles(LIMIT);
+app.get("/redditscraper", async (request, response) => {
+  const LIMIT = 100; // min number of video links to get
 
-  response.send(
-    profilesArray
-      .map(
-        (post) =>
-          `<div>
-            <div><a href=${post.link}>${post.title}</a> - ${post.reddit_likes} likes</div>
-            <div>by ${post.OP}</div>
-            <video width="480" height="270" controls muted autoplay="autoplay">
+  const limit = request.query.limit ?? LIMIT;
+  const after = request.query.after ?? null;
+
+  const { profilesArray, last, nonvideoPosts } = await ScrapeRedditForProfiles(
+    limit,
+    after
+  );
+
+  // chromaprofile
+  //   .insertMany(profilesArray)
+  //   .then(() => console.log("profilesArray inserted: ", profilesArray));
+
+  // profilesArray.forEach((post) => {
+  //   if (
+  //     post.OPcommentLinks &&
+  //     post.OPcommentLinks.length > 0 &&
+  //     post.OPcommentLinks[0].match(
+  //       /(?:https:\/\/drive\.google\.com\/file\/d\/)(.*)(?:\/view\?usp=sharing)/gi
+  //     )
+  //   ) {
+  //     ConvertGDriveLink(post.OPcommentLinks[0]);
+  //   }
+  // });
+
+  const profilesString = profilesArray
+    .map((post) => {
+      const downloadLinksString = post.OPcommentLinks.map(
+        (link) =>
+          `<div><a href=${link} target="_blank">Download ${link}</a></div>`
+      ).reduce((a, b) => a + b, "");
+      return `<div style="
+            border: 1px solid grey; 
+            border-radius: 5px; 
+            margin: 5px;
+            padding: 10px; 
+            box-shadow: 3px 3px 5px #aaaaaa;
+          ">
+          <div><a href=${post.link}>${post.title}</a> - ${post.reddit_likes} likes</div>
+          <div>by ${post.OP}</div>
+          <div>
+            <video controls width="480" height="270" muted loop autoplay="autoplay">
               <source type="video/mp4" src=${post.videoURL} />
             </video>
-            <div><a href=${post.OPcommentLinks[0]} target="_blank">Download ${post.OPcommentLinks[0]}</a></div>
-          </div>`
-      )
-      .reduce((a, b) => a + b)
-  );
+          </div>
+          <div>
+            <video controls width="480" height="30" muted loop autoplay="autoplay">
+              <source type="video/mp4" src=${post.audioURL} />
+            </video>
+          </div>
+          ${downloadLinksString}
+        </div>`;
+    })
+    .reduce((a, b) => a + b);
+
+  const nonprofilesString = nonvideoPosts
+    .map((post) => {
+      //console.log(post.data.selftext);
+      return `<div style="
+            display: flex;
+            border: 1px solid grey; 
+            border-radius: 5px; 
+            margin: 5px;
+            padding: 10px; 
+            box-shadow: 3px 3px 5px #aaaaaa;
+          ">
+          <div><img src=${post.data.thumbnail} /></div>
+          <div style="margin-left: 10px; width: 100%; display: flex; flex-direction: column">
+            <div><a href=${post.data.url}>${post.data.title}</a></div>
+            <div style="width: 100%; overflow-wrap: anywhere;">${post.data.selftext}</div>
+          </div>
+      </div>`;
+    })
+    .reduce((a, b) => a + b);
+
+  const url = `http://localhost:3001/redditscraper?limit=${limit}&after=${last}`;
+  const nextLinkString = `<div width="100%"><a href=${url}>next</a></div>`;
+
+  const responseString = `<div style="display: flex;">
+      <div>${profilesString}</div>
+      <div>${nonprofilesString}</div>
+    </div>
+  <div>${nextLinkString}</div>`;
+
+  response.send(responseString);
 });
 
 app.get("/videotest/", async (request, response) => {
