@@ -3,6 +3,7 @@ const express = require("express");
 const app = express();
 const mongo = require("./services/mongo.js");
 const chromaprofile = require("./models/chromaprofile.js");
+const { ProfileDownload, AnalyzeXMLFile } = require("./profile-analyzer.js");
 
 const {
   ScrapeRedditForProfiles,
@@ -26,6 +27,13 @@ app.get("/videojson/", async (request, response) => {
   return response.send(json.data.children.filter((post) => post.data.is_video));
 });
 
+app.get("/profile-analyzer", async (request, response) => {
+  // const url = `https://drive.google.com/uc?id=1NfRrdrDJ2DqanieRx4BCgE56RktwgBLV&export=download`;
+  // await ProfileDownload(url);
+  AnalyzeXMLFile(`./downloads/edede9d9-7809-49e3-a9e8-96a484623d94.xml`);
+  return response.send(`<div>hello download</div>`);
+});
+
 app.get("/redditscraper", async (request, response) => {
   const LIMIT = 100; // min number of video links to get
 
@@ -40,18 +48,6 @@ app.get("/redditscraper", async (request, response) => {
   // chromaprofile
   //   .insertMany(profilesArray)
   //   .then(() => console.log("profilesArray inserted: ", profilesArray));
-
-  // profilesArray.forEach((post) => {
-  //   if (
-  //     post.OPcommentLinks &&
-  //     post.OPcommentLinks.length > 0 &&
-  //     post.OPcommentLinks[0].match(
-  //       /(?:https:\/\/drive\.google\.com\/file\/d\/)(.*)(?:\/view\?usp=sharing)/gi
-  //     )
-  //   ) {
-  //     ConvertGDriveLink(post.OPcommentLinks[0]);
-  //   }
-  // });
 
   const profilesString = profilesArray
     .map((post) => {
@@ -85,7 +81,6 @@ app.get("/redditscraper", async (request, response) => {
 
   const nonprofilesString = nonvideoPosts
     .map((post) => {
-      //console.log(post.data.selftext);
       return `<div style="
             display: flex;
             border: 1px solid grey; 
