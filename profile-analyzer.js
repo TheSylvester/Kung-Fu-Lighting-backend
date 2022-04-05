@@ -3,11 +3,10 @@ const decompress = require("decompress");
 const fs = require("fs");
 const XmlReader = require("xml-reader");
 const xmlQuery = require("xml-query");
-const { Console } = require("console");
 
 const DIRECTORY = `./downloads/`;
 
-const ProfileDownload = async (url) => {
+const ProfileDownload = async (url = null) => {
   const extension_regex = /\.(\w+)$/gi;
   const dl = new DownloaderHelper(url, DIRECTORY, {
     fileName: (fileName) => {
@@ -20,22 +19,30 @@ const ProfileDownload = async (url) => {
     }
   });
 
-  dl.on("end", async (downloadInfo) => {
-    console.log("Download Complete!");
+  return new Promise((resolve, reject) => {
+    dl.on("end", async (downloadInfo) => {
+      console.log("Download Complete!");
 
-    const fileNames = await ExtractProfile(
-      `${DIRECTORY}${downloadInfo.fileName}`,
-      DIRECTORY
-    );
+      const fileNames = await ExtractProfile(
+        `${DIRECTORY}${downloadInfo.fileName}`,
+        DIRECTORY
+      );
 
-    console.log("XML Parse here");
-    fileNames.forEach((file) => AnalyzeXMLFile(`${DIRECTORY}${file}`));
+      resolve(fileNames);
+    });
+    dl.on("error", (err) => {
+      console.log("Download Failed", err);
+      return reject(err);
+    });
+    dl.start().catch((err) => {
+      console.error(err);
+      return reject(err);
+    });
   });
-  dl.on("error", (err) => console.log("Download Failed", err));
-  dl.start().catch((err) => console.error(err));
 };
 
 const readFilePromise = (...args) => {
+  /* promisify fs */
   return new Promise((resolve, reject) => {
     fs.readFile(...args, (err, data) => {
       if (err) return reject(err);
@@ -44,47 +51,51 @@ const readFilePromise = (...args) => {
   });
 };
 
-const AnalyzeXMLFile = (xmlfile) => {
+const AnalyzeXMLFile = async (xmlfile) => {
+  /***
+   * given a relative file path xmlfile,
+   * return analyzed properties { devices, colours }
+   */
   console.log("Parsing XML file: ", xmlfile);
-  fs.readFile(xmlfile, "utf8", (err, xmldata) => {
-    const ast = XmlReader.parseSync(xmldata);
-    const xq = xmlQuery(ast);
 
-    const devices = xq
-      .find("Devices")
-      .find("Device")
-      .find("Name")
-      .children()
-      .map((element) => element.value);
+  const xmldata = await readFilePromise(xmlfile, "utf8");
+  const ast = XmlReader.parseSync(xmldata);
+  const xq = xmlQuery(ast);
 
-    console.log("Devices: ", devices);
+  const devices = xq
+    .find("Devices")
+    .find("Device")
+    .find("Name")
+    .children()
+    .map((element) => element.value);
 
-    const colours = xq
-      .find("Colors")
-      .find("RzColor")
-      .map((rzcolor) => {
-        const redObject = rzcolor.children.find(
-          (child) => child.name === "Red"
-        );
-        const red = redObject ? Number(redObject.children[0].value) : 0;
-        const greenObject = rzcolor.children.find(
-          (child) => child.name === "Green"
-        );
-        const green = greenObject ? Number(greenObject.children[0].value) : 0;
-        const blueObject = rzcolor.children.find(
-          (child) => child.name === "Blue"
-        );
-        const blue = blueObject ? Number(blueObject.children[0].value) : 0;
+  console.log("Devices: ", devices);
 
-        return { red, green, blue };
-      });
+  const allColours = xq
+    .find("Colors")
+    .find("RzColor")
+    .map((rzcolor) => {
+      const redObject = rzcolor.children.find((child) => child.name === "Red");
+      const red = redObject ? Number(redObject.children[0].value) : 0;
+      const greenObject = rzcolor.children.find(
+        (child) => child.name === "Green"
+      );
+      const green = greenObject ? Number(greenObject.children[0].value) : 0;
+      const blueObject = rzcolor.children.find(
+        (child) => child.name === "Blue"
+      );
+      const blue = blueObject ? Number(blueObject.children[0].value) : 0;
 
-    const uniqueColours = [
-      ...new Set(colours.map((colour) => ConvertRGBtoHex(colour)))
-    ];
+      return { red, green, blue };
+    });
 
-    console.log(`Colours (${uniqueColours.length}):`, uniqueColours);
-  });
+  const colours = [
+    ...new Set(allColours.map((colour) => ConvertRGBtoHex(colour)))
+  ];
+
+  console.log(`Colours (${colours.length}):`, colours);
+
+  return { devices, colours };
 };
 
 const ColorToHex = (color) => {
@@ -105,7 +116,7 @@ const ExtractProfile = async (source, target) => {
     return filenames;
   } catch (err) {
     // handle any errors
-    console.log("Extraction Failed\n", err);
+    console.log("Extraction Failed: ", err);
   }
 };
 

@@ -4,6 +4,7 @@ const app = express();
 const mongo = require("./services/mongo.js");
 const chromaprofile = require("./models/chromaprofile.js");
 const { ProfileDownload, AnalyzeXMLFile } = require("./profile-analyzer.js");
+const urlencode = require("urlencode");
 
 const {
   ScrapeRedditForProfiles,
@@ -27,15 +28,31 @@ app.get("/videojson/", async (request, response) => {
   return response.send(json.data.children.filter((post) => post.data.is_video));
 });
 
-app.get("/profile-analyzer", async (request, response) => {
-  // const url = `https://drive.google.com/uc?id=1NfRrdrDJ2DqanieRx4BCgE56RktwgBLV&export=download`;
-  // await ProfileDownload(url);
-  AnalyzeXMLFile(`./downloads/edede9d9-7809-49e3-a9e8-96a484623d94.xml`);
-  return response.send(`<div>hello download</div>`);
+app.get("/profile-analyzer/*", async (request, response) => {
+  const url = request.params[0]; // hoping if I capture everything and pick up 1st item
+  // it will work to capture the full url
+  if (!url) return response.send(400);
+
+  const DIRECTORY = `./downloads/`;
+
+  const filenames = await ProfileDownload(url);
+  const fullpath = `${DIRECTORY}${filenames[0]}`;
+
+  const { devices, colours } = await AnalyzeXMLFile(fullpath);
+
+  return response.send(
+    `<div>Profile Contents:</div>
+    <ul>${devices
+      .map((device) => `<li>${device}</li>`)
+      .reduce((a, b) => a + b)}</ul>
+    <ul>${colours
+      .map((colour) => `<li style="background-color: ${colour}">${colour}</li>`)
+      .reduce((a, b) => a + b)}</ul>`
+  );
 });
 
 app.get("/redditscraper", async (request, response) => {
-  const LIMIT = 100; // min number of video links to get
+  const LIMIT = 100; // number of reddit json to scrape from
 
   const limit = request.query.limit ?? LIMIT;
   const after = request.query.after ?? null;
@@ -49,11 +66,19 @@ app.get("/redditscraper", async (request, response) => {
   //   .insertMany(profilesArray)
   //   .then(() => console.log("profilesArray inserted: ", profilesArray));
 
+  console.log("Last: ", last);
+
   const profilesString = profilesArray
     .map((post) => {
       const downloadLinksString = post.OPcommentLinks.map(
         (link) =>
           `<div><a href=${link} target="_blank">Download ${link}</a></div>`
+      ).reduce((a, b) => a + b, "");
+      const analyzeLinksString = post.OPcommentLinks.map(
+        (link) =>
+          `<div><a href="/profile-analyzer/${urlencode(
+            link
+          )}" target="_blank">Analyze</a></div>`
       ).reduce((a, b) => a + b, "");
       return `<div style="
             border: 1px solid grey; 
@@ -74,7 +99,8 @@ app.get("/redditscraper", async (request, response) => {
               <source type="video/mp4" src=${post.audioURL} />
             </video>
           </div>
-          ${downloadLinksString}
+          <div>${downloadLinksString}</div>
+          <div>${analyzeLinksString}</div>
         </div>`;
     })
     .reduce((a, b) => a + b);

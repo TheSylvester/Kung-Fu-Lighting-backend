@@ -27,6 +27,7 @@
     "markdown-link-extractor": "^2.0.1",
     "mongoose": "^6.2.6",
     "node-downloader-helper": "^2.1.0",
+    "urlencode": "^1.1.0",
     "xml-query": "^1.5.0",
     "xml-reader": "^2.4.3"
   },
