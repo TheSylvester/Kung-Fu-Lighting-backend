@@ -188,4 +188,4 @@ const ScrapeRedditForProfiles = async (limit = 25, after = null) => {
 
 exports.ScrapeRedditForProfiles = ScrapeRedditForProfiles;
 exports.GetRedditJSON = GetRedditJSON;
-exports.MakeGoogleDriveLinkDownloadable = ConvertGDriveLink;
+exports.ConvertGDriveLink = ConvertGDriveLink;

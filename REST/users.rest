@@ -1,0 +1,38 @@
+POST http://localhost:3003/api/login/ HTTP/1.1
+content-type: application/json
+
+{
+  "username": "Silver",
+  "name": "TheSylvester",
+  "password": "pass"
+}
+
+###
+POST http://localhost:3003/api/login/ HTTP/1.1
+content-type: application/json
+
+{
+  "username": "Tommy",
+  "name": "Tommy The Gunn",
+  "password": "password"
+}
+
+###
+POST http://localhost:3003/api/users/ HTTP/1.1
+content-type: application/json
+
+{
+  "username": "Tommy",
+  "name": "Tommy The Gunn",
+  "password": "password"
+}
+
+###
+GET http://localhost:3003/api/users/
+
+###
+
+DELETE http://localhost:3003/api/users/61f048bd28dc0fa19723c638
+
+###
+

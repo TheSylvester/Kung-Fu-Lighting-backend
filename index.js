@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const app = express();
+const cors = require("cors");
 const mongo = require("./services/mongo.js");
 const chromaprofile = require("./models/chromaprofile.js");
 const { ProfileDownload, AnalyzeXMLFile } = require("./profile-analyzer.js");
@@ -13,6 +14,8 @@ const {
 } = require("./reddit-scraper");
 // const PORT = 3001;
 const PORT = process.env.PORT;
+
+app.use(cors());
 
 app.listen(PORT, () => {
   console.log(`Kung-Fu-Lighting Server running on port ${PORT}`);
@@ -49,6 +52,22 @@ app.get("/profile-analyzer/*", async (request, response) => {
       .map((colour) => `<li style="background-color: ${colour}">${colour}</li>`)
       .reduce((a, b) => a + b)}</ul>`
   );
+});
+
+app.get("/api/redditscraper", async (request, response) => {
+  const LIMIT = 100; // number of reddit json to scrape from
+
+  const limit = request.query.limit ?? LIMIT;
+  const after = request.query.after ?? null;
+
+  const { profilesArray, last, nonvideoPosts } = await ScrapeRedditForProfiles(
+    limit,
+    after
+  );
+
+  console.log("/api/redditscraper \nlast: ", last);
+
+  response.status(200).json({ profilesArray, last, nonvideoPosts });
 });
 
 app.get("/redditscraper", async (request, response) => {
