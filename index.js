@@ -4,14 +4,14 @@ const app = express();
 const cors = require("cors");
 const mongo = require("./services/mongo.js");
 const chromaprofile = require("./models/chromaprofile.js");
-const { ProfileDownload, AnalyzeXMLFile } = require("./profile-analyzer.js");
+const {
+  ProfileDownload,
+  AnalyzeXMLFile,
+  AnalyzeScrapedPost
+} = require("./profile-analyzer.js");
 const urlencode = require("urlencode");
 
-const {
-  ScrapeRedditForProfiles,
-  GetRedditJSON,
-  MakeGoogleDriveLinkDownloadable: ConvertGDriveLink
-} = require("./reddit-scraper");
+const { ScrapeRedditForProfiles } = require("./reddit-scraper");
 // const PORT = 3001;
 const PORT = process.env.PORT;
 
@@ -21,20 +21,10 @@ app.listen(PORT, () => {
   console.log(`Kung-Fu-Lighting Server running on port ${PORT}`);
 });
 
-app.get("/json/", async (request, response) => {
-  const json = await GetRedditJSON();
-  return response.send(json);
-});
-
-app.get("/videojson/", async (request, response) => {
-  const json = await GetRedditJSON();
-  return response.send(json.data.children.filter((post) => post.data.is_video));
-});
-
 app.get("/profile-analyzer/*", async (request, response) => {
   const url = request.params[0]; // hoping if I capture everything and pick up 1st item
   // it will work to capture the full url
-  if (!url) return response.send(400);
+  if (!url) return response.sendStatus(400);
 
   const DIRECTORY = `./downloads/`;
 
@@ -52,6 +42,10 @@ app.get("/profile-analyzer/*", async (request, response) => {
       .map((colour) => `<li style="background-color: ${colour}">${colour}</li>`)
       .reduce((a, b) => a + b)}</ul>`
   );
+});
+
+app.get("/api/profile-analyzer/", async (request, response) => {
+  return response.send(await AnalyzeScrapedPost(null));
 });
 
 app.get("/api/redditscraper", async (request, response) => {
