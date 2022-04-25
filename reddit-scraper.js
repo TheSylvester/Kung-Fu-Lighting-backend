@@ -57,11 +57,9 @@ const ScrapeReddit = async (limit = 25, after = null) => {
 };
 
 const GetRedditJSON = async (limit = 25, after = null) => {
-  const limitString = `?limit=${limit}`;
-  const pagination = `&after=${after}`;
-  const response = await axios_limited.get(
-    `${ChromaProfilesURL}.json${limitString + (after ? pagination : "")}`
-  );
+  const response = await axios_limited.get(`${ChromaProfilesURL}.json`, {
+    params: { limit, after }
+  });
   // console.log("GetRedditJSON headers: ", response.headers);
   return response.data;
 };
@@ -129,27 +127,42 @@ const ExtractOPCommentLinks = (comments, OP = null) => {
     }
   });
 
-  const returnLinks = OPcommentLinks.map((link) => ConvertGDriveLink(link));
+  // const returnLinks = OPcommentLinks.map((link) => ConvertGDriveLink(link));
+  // const unique_returnLinks = [...new Set(returnLinks)];
+  const unique_returnLinks = [...new Set(OPcommentLinks)];
 
-  return returnLinks;
+  return unique_returnLinks;
 };
 
-const ConvertGDriveLink = (link) => {
+const ConvertGDriveLink = (url) => {
   /************************************************************************
    * Receives a url (for a google drive link) and returns a download link
    * (?:https:\/\/drive.google.com\/file\/d\/)(.*)(?:\/view\?usp=sharing)
+   * (?:https:\/\/drive\.google\.com\/open\?id=)(.*)$
+   *
+   * OLD downloadURL = `https://drive.google.com/uc?id=${fileId}&export=download`
+   * Google API downloadURL = `https://www.googleapis.com/drive/v3/files/${fileId}`;
    ************************************************************************/
 
-  const gdrive_regex =
-    /(?:https:\/\/drive\.google\.com\/file\/d\/)(.*)(?:\/view\?usp=sharing)/gi;
-  const match = gdrive_regex.exec(link);
+  const gdrive_regexs = [
+    /(?:https:\/\/drive\.google\.com\/file\/d\/)(.*)(?:\/view)/gi,
+    /(?:https:\/\/drive\.google\.com\/open\?id=)(.*)$/gi
+  ];
 
-  if (!match) return link; // short circuit link is not a g drive link, returns unaltered
+  let returnLink = url;
 
-  const fileID = match[1]; // match[1] will be the 1st capture group (.*)
-  const downloadURL = `https://drive.google.com/uc?id=${fileID}&export=download`;
+  for (const regex of gdrive_regexs) {
+    returnLink = (function (link, regex) {
+      const match = regex.exec(link);
+      if (!match) return link; // early return link is not a g drive link, returns unaltered
 
-  return downloadURL;
+      const fileId = match[1]; // match[1] will be the 1st capture group (.*)
+      const downloadURL = `https://drive.google.com/uc?id=${fileId}&export=download`;
+      return downloadURL;
+    })(returnLink, regex);
+  }
+
+  return returnLink;
 };
 
 const ExtractDataFromPost = (postJSON) => {
@@ -241,3 +254,6 @@ const ScrapeRedditForProfiles = async (limit = 25, after = null) => {
 };
 
 exports.ScrapeRedditForProfiles = ScrapeRedditForProfiles;
+exports.GetCommentsJSON = GetCommentsJSON;
+exports.ExtractOPCommentLinks = ExtractOPCommentLinks;
+exports.ExtractOProotComments = ExtractOProotComments;

@@ -9,7 +9,7 @@ const chromaprofileSchema = new mongoose.Schema({
   title: {
     type: String,
     required: true,
-    minlength: 3
+    minlength: 5
   },
   link: {
     type: String,
@@ -22,9 +22,22 @@ const chromaprofileSchema = new mongoose.Schema({
   scraped_utc: Number,
   videoURL: String,
   audioURL: String,
+  dashURL: String,
+  duration: Number,
+  height: Number,
+  width: Number,
   thumbnail: String,
   OPcommentLinks: [{ type: String }],
-  OProotComments: [{ type: String }]
+  OProotComments: [{ type: String }],
+  import_status: String,
+  profiles: [
+    {
+      link: [{ type: String }],
+      name: [{ type: String }],
+      devices: [{ type: String }],
+      colours: [{ type: String }]
+    }
+  ]
 });
 
 chromaprofileSchema.set("toJSON", {
@@ -35,4 +48,8 @@ chromaprofileSchema.set("toJSON", {
   }
 });
 
-module.exports = mongoose.model("Chromaprofile", chromaprofileSchema);
+exports.Chromaprofile = mongoose.model("Chromaprofile", chromaprofileSchema);
+exports.Rejectedprofile = mongoose.model(
+  "Rejectedprofile",
+  chromaprofileSchema
+);

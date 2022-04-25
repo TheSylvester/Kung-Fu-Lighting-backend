@@ -1,12 +1,15 @@
 const { DownloaderHelper } = require("node-downloader-helper");
+const Bottleneck = require("bottleneck");
+const DownloadFromGoogle = require("./services/google-drive-downloader");
 const decompress = require("decompress");
 const fs = require("fs");
 const XmlReader = require("xml-reader");
 const xmlQuery = require("xml-query");
+const { Chromaprofile, Rejectedprofile } = require("./models/chromaprofile");
 
 const DIRECTORY = `./downloads/`;
 
-const AnalyzeScrapes = async (postData) => {
+const AnalyzeAndSaveScrapes = async (postData) => {
   /**
    * takes scraped reddit data array of posts from postData and
    * returns a list of acceptable profiles ready for insert into database
@@ -18,30 +21,31 @@ const AnalyzeScrapes = async (postData) => {
   for (post of postData) {
     /* run each post through the Analyzer (download, extract, xml-q) to add the analysis information to it */
     const analyzedProfile = await AnalyzeScrapedPost(post);
-    analyzedProfile.import_status === "OK"
-      ? newProfiles.push(analyzedProfile)
-      : rejectedProfiles.push(analyzedProfile);
+    if (analyzedProfile.import_status === "OK") {
+      const newProfile = new Chromaprofile(analyzedProfile);
+      await newProfile.save().catch((e) => console.log(e));
+      newProfiles.push(analyzedProfile);
+      console.log(">>>>>>>>>>> PROFILE SAVED <<<<<<<<<<<<");
+    } else {
+      const rejectedProfile = new Rejectedprofile(analyzedProfile);
+      await rejectedProfile.save().catch((e) => console.log(e));
+      rejectedProfiles.push(analyzedProfile);
+      console.log("xxxxxxxxxxxxx rejected xxxxxxxxxxx");
+    }
   }
 
   return { newProfiles, rejectedProfiles };
 };
 
+/***
+ * takes scraped video post data and returns the same post with:
+ * { ...post, import_status, profiles: [ { devices, colours } ] }
+ * early returns if no download, can't extract, or can't read xml
+ */
 const AnalyzeScrapedPost = async (post) => {
-  /***
-   * takes scraped video post data and returns the same post with:
-   * { ...post, import_status, profiles: [ { devices, colours } ] }
-   * early returns if no download, can't extract, or can't read xml
-   */
-
-  // /* TEMPORARY VALUE */
-  const links = [
-    "https://drive.google.com/uc?id=1NfRrdrDJ2DqanieRx4BCgE56RktwgBLV&export=download",
-    "https://drive.google.com/uc?id=13m8UZa1tlyn_yuDGJ-gqZNyxR7MZUAKv&export=download"
-  ];
-
-  // const links = post.OPcommentLinks;
-  // if (!links || links.length === 0)
-  //   return { ...post, import_status: "NO LINKS", profiles: [] }; // early exit if the post has no links
+  const links = post.OPcommentLinks;
+  if (!links || links.length === 0)
+    return { ...post, import_status: "NO LINKS", profiles: [] }; // early exit if the post has no links
 
   let analysis = { import_status: "", profiles: [] }; // initially an empty analysis so we can for loop
 
@@ -61,12 +65,27 @@ const AnalyzeScrapedPost = async (post) => {
   return { ...post, ...analysis };
 };
 
+/**
+ * Download, Extract, & XML-Query link provided
+ * only download if it's a google link
+ * @param {String} link - url to analyze
+ * @returns { import_status: { String }, profiles: [] } import_status, profiles }
+ */
 const AnalyzeLink = async (link) => {
-  // Download, Extract, XML-Query link to return { import_status, devices, colours };
+  console.log("...Analyzing ", link);
+  const fileid = GetFileIdFromGDriveLink(link);
+  /* see if link is a google drive link, if not, early exit */
+  console.log("...fileid ", fileid);
+
+  if (!fileid)
+    return {
+      import_status: "NOT A GOOGLE LINK",
+      profiles: []
+    }; // early exit if no download available
 
   /* download the profile - get the filename */
-  const downloadedfile = await DownloadFromURL(link).catch((error) => {
-    console.error("DownloadFromURL Error: ", error);
+  const downloadedfile = await DownloadFromGoogle(fileid).catch((error) => {
+    console.error("DownloadFromGoogle Error: ", error);
   });
 
   if (!downloadedfile)
@@ -121,14 +140,14 @@ const AnalyzeLink = async (link) => {
     }
 
     /* xml parse */
-    const { devices, colours } = await AnalyzeXMLFile(
+    const { name, devices, colours } = await AnalyzeXMLFile(
       `${DIRECTORY}${fileName}`
     ).catch((error) => {
       console.error("Can't Analyze XML File: ", error);
     });
 
     if (devices && devices.length > 0 && colours && colours.length > 0) {
-      profiles.push({ devices, colours });
+      profiles.push({ link, name, devices, colours });
       import_status = "OK";
     } else {
       import_status =
@@ -151,23 +170,82 @@ const AnalyzeLink = async (link) => {
   return { import_status, profiles };
 };
 
+/**
+ * @returns fileId if this is a gdrive link, or null
+ * @param {String} url
+ */
+const GetFileIdFromGDriveLink = (url) => {
+  const gdrive_regexs = [
+    /(?:https:\/\/drive\.google\.com\/file\/d\/)(.*)(?:\/view)/gi,
+    /(?:https:\/\/drive\.google\.com\/open\?id=)(.*)$/gi,
+    /(?:https:\/\/drive\.google\.com\/uc\?id=)(.*)&export=download/gi
+  ];
+
+  const fileid = gdrive_regexs
+    .map((regex) => {
+      const match = regex.exec(url);
+      if (!match) return null;
+      return match[1];
+    })
+    .reduce((a, b) => {
+      return b ? b : a ? a : null;
+    });
+
+  return fileid;
+};
+
 const DownloadFromURL = async (url) => {
   /***
    * downloads the file at URL
    * returns the filename of the downloaded
    * returns null if no file
    */
+
+  const MAXFILESIZE = 3000000;
+
   console.log("Attempting to download... ", url);
 
-  const dl = new DownloaderHelper(url, DIRECTORY);
+  const dl = new DownloaderHelper(url, DIRECTORY, {
+    timeout: 10000
+  });
 
   return new Promise((resolve, reject) => {
+    const extension_regex = /\.(\w+)$/gi;
+    dl.on("download", async (downloadInfo) => {
+      if (downloadInfo.totalSize > MAXFILESIZE) {
+        console.log("Download is TOO LARGE");
+        dl.stop();
+        reject();
+      }
+      const match = extension_regex.exec(downloadInfo.fileName);
+      const extension = match ? match[0] : "";
+      if (extension !== ".ChromaEffects" && extension !== ".zip") {
+        console.log("Download Not a .ChromaEffects or .zip");
+        dl.stop();
+        reject();
+      }
+    });
+    dl.on("progress.throttled", async (downloadInfo) => {
+      console.log(
+        `...${downloadInfo.downloaded} bytes.  ${downloadInfo.progress}% complete`
+      );
+      if (downloadInfo.downloaded > MAXFILESIZE) {
+        console.log("Downloaded ALREADY too big, stopping now...");
+        dl.stop();
+        reject();
+      }
+    });
     dl.on("end", async (downloadInfo) => {
       console.log("Downloaded ", downloadInfo.fileName);
       resolve(downloadInfo.fileName);
     });
     dl.on("error", (err) => {
-      console.log("Download Failed ", err);
+      console.log(
+        "Download Failed (status,message,body) ",
+        err.status,
+        err.message,
+        err.body
+      );
       return reject(err);
     });
     dl.start().catch((err) => {
@@ -176,6 +254,16 @@ const DownloadFromURL = async (url) => {
     });
   });
 };
+
+/* Rate-Limited DownloadFromURL using Bottleneck */
+const limiter = new Bottleneck({
+  reservoir: 35, // initial value
+  reservoirRefreshAmount: 35,
+  reservoirRefreshInterval: 60 * 1000, // must be divisible by 250
+  maxConcurrent: 1,
+  minTime: 600
+});
+const DownloadFromURL_limited = limiter.wrap(DownloadFromURL);
 
 const ProfileDownload = async (url = null) => {
   const extension_regex = /\.(\w+)$/gi;
@@ -233,13 +321,14 @@ const AnalyzeXMLFile = async (xmlfile) => {
   const ast = XmlReader.parseSync(xmldata);
   const xq = xmlQuery(ast);
 
-  const devices = xq
+  const allDevices = xq
     .find("Devices")
     .find("Device")
     .find("Name")
     .children()
     .map((element) => element.value);
 
+  const devices = [...new Set(allDevices)];
   // console.log("Devices: ", devices);
 
   const allColours = xq
@@ -265,9 +354,15 @@ const AnalyzeXMLFile = async (xmlfile) => {
     ...new Set(allColours.map((colour) => ConvertRGBtoHex(colour)))
   ];
 
+  let name = "";
+  xq.find("Name").each((node) => {
+    if (node.parent.name === "LightingEffects") name = node.children[0].value;
+  });
+
+  // console.log("***** PROFILENAME: ", name, " **********");
   // console.log(`Colours (${colours.length}):`, colours);
 
-  return { devices, colours };
+  return { name, devices, colours };
 };
 
 const ColorToHex = (color) => {
@@ -298,4 +393,5 @@ const ExtractProfile = async (source, target) => {
 exports.ProfileDownload = ProfileDownload;
 exports.AnalyzeXMLFile = AnalyzeXMLFile;
 exports.AnalyzeScrapedPost = AnalyzeScrapedPost;
-exports.AnalyzeScrapes = AnalyzeScrapes;
+exports.AnalyzeScrapes = AnalyzeAndSaveScrapes;
+exports.AnalyzeLink = AnalyzeLink;

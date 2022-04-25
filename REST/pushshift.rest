@@ -1,0 +1,30 @@
+GET https://api.pushshift.io/reddit/search/submission
+    ?subreddit=chromaprofiles
+    &is_video=true
+    &after=1512104400
+
+###
+GET https://www.googleapis.com/drive/v3/files/1NkNw-ZV5tUUooMfxtoWk719rky9SE67s?key=AIzaSyCV5VWqBtSy-OcMOVMp1EoM-U2UAI1lnM8&alt=media
+
+###
+POST https://oauth2.googleapis.com/token
+grant_type: urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer
+assertion: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJrdW5nLWZ1LWxpZ2h0aW5nQGt1bmctZnUtbGlnaHRpbmcuaWFtLmdzZXJ2aWNlYWNjb3VudC5jb20iLCJzY29wZSI6Imh0dHBzOi8vd3d3Lmdvb2dsZWFwaXMuY29tL2F1dGgvZHJpdmUuZmlsZSIsImF1ZCI6Imh0dHBzOi8vb2F1dGgyLmdvb2dsZWFwaXMuY29tL3Rva2VuIiwiZXhwIjoxNjUwNjg2NDI0LCJpYXQiOjE2NTA2ODI4MjR9.IGC8GB8q47oWolmRKCgTphtSDJPI9rk85vWjFSWlDB9kn2d56Bge13DQBP3HFCokAqElVdnMIderdKB2tOWPcH1qd6V0TFOoIEqdy7qg1x0qbaXKX17Q1Z_2PItnn3oCNU3NdjtOuKtg8XOsuMDMSa1Nr_l4pHRc-ZbymAOzolsa0cjF1xgQ9AjJCn3fgnhsp6k33OOCQr-gLaNI9nFOeSh4Yp8_fO_LX94tL6MMaAGBgj-wWwvsq7HKktqK79-3_7dEU8u5c9s5UWRf3TzlcSUs5ahnuEhLsIuxagO19XdhWKYshCd0VZu2gTycgdsqiygy7nJXV0zBplGrVbbzbg
+
+###
+
+DELETE http://localhost:3003/api/blogs/61f1fd552ef5a89bd1c71ef4
+content-type: application/json
+authorization: bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6IlRvbW15IiwiaWQiOiI2MWYxYjQ2ZGYzMWZjYWMzODgyMGU3ZjUiLCJpYXQiOjE2NDMyMzAzMjJ9.6MduJKQshEiikpkfYYBvBiPzIettVXZgdakc1fHCzPM
+
+###
+PUT http://localhost:3003/api/blogs/61ef392fe98a2ebf9a5820e9 HTTP/1.1
+content-type: application/json
+
+{
+    "title": "Simply Threes",
+    "author": "Threes",
+    "url": "http://localhost:3003/api/blogs/",
+    "likes": 5,
+    "id": "61ef392fe98a2ebf9a5820e9"
+}

@@ -7,11 +7,13 @@ const chromaprofile = require("./models/chromaprofile.js");
 const {
   ProfileDownload,
   AnalyzeXMLFile,
-  AnalyzeScrapedPost
+  AnalyzeScrapedPost,
+  AnalyzeLink
 } = require("./profile-analyzer.js");
 const urlencode = require("urlencode");
 
 const { ScrapeRedditForProfiles } = require("./reddit-scraper");
+const { ScrapePushshift } = require("./pushshift-scraper");
 // const PORT = 3001;
 const PORT = process.env.PORT;
 
@@ -62,6 +64,38 @@ app.get("/api/redditscraper", async (request, response) => {
   console.log("/api/redditscraper \nlast: ", last);
 
   response.status(200).json({ profilesArray, last, nonvideoPosts });
+});
+
+app.get("/api/scrapetoend", async (request, response) => {
+  const LIMIT = 100; // number of reddit json to scrape from
+
+  const limit = request.query.limit ?? LIMIT;
+  let after = request.query.after ?? null;
+
+  let totalProfiles = 0;
+  do {
+    const scraped = await ScrapeRedditForProfiles(limit, after);
+    after = scraped.last;
+    totalProfiles += scraped.profilesArray.length;
+    console.log(
+      "profiles: ",
+      totalProfiles,
+      "/api/redditscraper after: ",
+      scraped.last
+    );
+  } while (after !== null && totalProfiles < 500);
+
+  response.status(200);
+});
+
+app.get("/api/scrapepushshift", async (request, response) => {
+  let from_utc = new Date(2017, 11).getTime() / 1000;
+  console.log("Scraping Pushshift.io from 2017 Dec");
+  let { newProfiles, rejectedProfiles } = ScrapePushshift({
+    from_utc
+  });
+
+  response.json(newProfiles);
 });
 
 app.get("/redditscraper", async (request, response) => {

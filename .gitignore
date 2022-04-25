@@ -40,3 +40,6 @@ Thumbs.db
 node_modules/
 # environment variables
 .env
+
+# service key
+kung-fu-lighting-705b8fd37ff2.json
