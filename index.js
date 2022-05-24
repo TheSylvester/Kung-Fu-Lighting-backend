@@ -3,18 +3,12 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 const mongo = require("./services/mongo.js");
-const chromaprofile = require("./models/chromaprofile.js");
-const {
-  ProfileDownload,
-  AnalyzeXMLFile,
-  AnalyzeScrapedPost,
-  AnalyzeLink
-} = require("./profile-analyzer.js");
-const urlencode = require("urlencode");
 
-const { ScrapeRedditForProfiles } = require("./reddit-scraper");
 const { ScrapePushshift } = require("./pushshift-scraper");
-// const PORT = 3001;
+const { ProcessNewRedditPosts } = require("./reddit-scraper");
+const Chromaprofile = require("./models/chromaprofile.js");
+const Redditpost = require("./models/redditpost.js");
+
 const PORT = process.env.PORT;
 
 app.use(cors());
@@ -23,175 +17,159 @@ app.listen(PORT, () => {
   console.log(`Kung-Fu-Lighting Server running on port ${PORT}`);
 });
 
-app.get("/profile-analyzer/*", async (request, response) => {
-  const url = request.params[0]; // hoping if I capture everything and pick up 1st item
-  // it will work to capture the full url
-  if (!url) return response.sendStatus(400);
+/**
+ * profiles
+ *---------------------
+ * GET /api/profiles
+ * returns chroma profiles
+ *
+ * @param props.id36 - Default: N/A - id36's - Returns specific profiles by id36
+ * @param props.after - Default: N/A - Return results created [from] after this created_UTC
+ * @param props.before - Default: N/A - Return results created [to] before this created_UTC
+ *
+ * @param props.author - Default: N/A - Return results filtered by author
+ * @param props.devices - Default: N/A - Return results filtered by devices
+ * @param props.colours - Default: N/A - Return results filtered by colours (exact)
+ * @param props.effects - Default: N/A - Return results filtered by effects
+ *
+ * @param props.score_above - Default: N/A - Return results with score above this
+ * @param props.score_below - Default: N/A - Return results with score below this
+ *
+ * @param props.sort_order - Default: "desc" - Sort results in a specific order (Accepted: "asc", "desc")
+ * @param props.sort_by - Default: "created_utc" - property to sort by (Accepted: "created_utc", "score", "author", "title")
+ * @param props.skip - Default: 0 - Number of results to skip for pagination purposes
+ * @param props.limit - Default: 25 - Number of results to return
+ *
+ * @returns profiles - Array of Chromaprofiles
+ */
+app.get("/api/profiles", async (request, response) => {
+  // we start with "only posts that are import_status: "OK" and populate profiles
+  const matchDefault = { $match: { import_status: "OK" } };
+  const lookup_populate_profiles = {
+    $lookup: {
+      from: "chromaprofiles",
+      localField: "profiles",
+      foreignField: "_id",
+      as: "profiles"
+    }
+  };
+  // props.ids
+  const matchId36 = request.query.id36
+    ? {
+        $match: {
+          id36: { $in: [].concat(request.query.id36) }
+        }
+      }
+    : null;
+  // props.after
+  const matchAfter = request.query.after
+    ? { $match: { created_utc: { $gte: Number(request.query.after) } } }
+    : null;
+  // props.before
+  const matchBefore = request.query.before
+    ? { $match: { created_utc: { $lte: Number(request.query.before) } } }
+    : null;
 
-  const DIRECTORY = `./downloads/`;
+  // props.author
+  const matchAuthor = request.query.author
+    ? { $match: { OP: request.query.author } }
+    : null;
+  // props.devices
+  const matchDevices = request.query.devices
+    ? {
+        $match: {
+          "profiles.devices": { $in: [].concat(request.query.devices) }
+        }
+      }
+    : null;
+  // props.colours
+  const matchColours = request.query.colours
+    ? {
+        $match: {
+          "profiles.colours": { $in: [].concat(request.query.colours) }
+        }
+      }
+    : null;
+  // props.effects
+  const matchEffects = request.query.effects
+    ? {
+        $match: {
+          "profiles.effects": { $in: [].concat(request.query.effects) }
+        }
+      }
+    : null;
 
-  const filenames = await ProfileDownload(url);
-  const fullpath = `${DIRECTORY}${filenames[0]}`;
+  // props.matchScore_above/below
+  const { sign, score } = request.query.score_above
+    ? { sign: "$gte", score: Number(request.query.score_above) }
+    : request.query.score_below
+    ? { sign: "$lte", score: Number(request.query.score_below) }
+    : { sign: null, score: null };
+  const matchScore = sign ? { $match: { score: { [sign]: score } } } : null;
 
-  const { devices, colours } = await AnalyzeXMLFile(fullpath);
+  // props.sort_order
+  const sort_order =
+    { asc: 1, desc: -1 }[request.query.sort_order ?? "asc"] || 1;
+  // props.sort_by
+  const sort = ((sort_type) => {
+    const sortable_types = ["created_utc", "score"];
+    const type = sortable_types.includes(sort_type ?? "")
+      ? sort_type
+      : "created_utc";
 
-  return response.send(
-    `<div>Profile Contents:</div>
-    <ul>${devices
-      .map((device) => `<li>${device}</li>`)
-      .reduce((a, b) => a + b)}</ul>
-    <ul>${colours
-      .map((colour) => `<li style="background-color: ${colour}">${colour}</li>`)
-      .reduce((a, b) => a + b)}</ul>`
-  );
-});
+    return { $sort: { [type]: sort_order } };
+  })(request.query.sort_by);
+  // props.skip
+  const skip = request.query.skip
+    ? { $skip: Number(request.query.skip) }
+    : null;
+  // props.limit
+  const limit = {
+    $limit: request.query.limit ? Number(request.query.limit) : 25
+  };
 
-app.get("/api/profile-analyzer/", async (request, response) => {
-  return response.send(await AnalyzeScrapedPost(null));
-});
+  let aggregation = [
+    matchDefault,
+    lookup_populate_profiles,
+    matchId36,
+    matchAfter,
+    matchBefore,
+    matchAuthor,
+    matchDevices,
+    matchColours,
+    matchEffects,
+    matchScore,
+    sort,
+    skip,
+    limit
+  ].filter((match) => match != null);
 
-app.get("/api/redditscraper", async (request, response) => {
-  const LIMIT = 100; // number of reddit json to scrape from
+  console.log(aggregation);
 
-  const limit = request.query.limit ?? LIMIT;
-  const after = request.query.after ?? null;
+  // get profiles from db
+  const profiles = await Redditpost.aggregate(aggregation);
 
-  const { profilesArray, last, nonvideoPosts } = await ScrapeRedditForProfiles(
-    limit,
-    after
-  );
-
-  console.log("/api/redditscraper \nlast: ", last);
-
-  response.status(200).json({ profilesArray, last, nonvideoPosts });
-});
-
-app.get("/api/scrapetoend", async (request, response) => {
-  const LIMIT = 100; // number of reddit json to scrape from
-
-  const limit = request.query.limit ?? LIMIT;
-  let after = request.query.after ?? null;
-
-  let totalProfiles = 0;
-  do {
-    const scraped = await ScrapeRedditForProfiles(limit, after);
-    after = scraped.last;
-    totalProfiles += scraped.profilesArray.length;
-    console.log(
-      "profiles: ",
-      totalProfiles,
-      "/api/redditscraper after: ",
-      scraped.last
-    );
-  } while (after !== null && totalProfiles < 500);
-
-  response.status(200);
+  response.json(profiles);
 });
 
 app.get("/api/scrapepushshift", async (request, response) => {
-  let from_utc = new Date(2017, 11).getTime() / 1000;
-  console.log("Scraping Pushshift.io from 2017 Dec");
-  let { newProfiles, rejectedProfiles } = ScrapePushshift({
+  // *** need to change from_utc to the last created_utc found in DB
+  const fromDate = new Date(2017, 11);
+  let from_utc = fromDate.getTime() / 1000;
+  console.log(`Scraping Pushshift.io from ${fromDate.toDateString()}`);
+  let scrapeCount = await ScrapePushshift({
     from_utc
   });
 
-  response.json(newProfiles);
+  console.log(`Scrape Count returned: ${scrapeCount}`);
+
+  response.json(scrapeCount);
 });
 
-app.get("/redditscraper", async (request, response) => {
-  const LIMIT = 100; // number of reddit json to scrape from
+app.get("/api/processnewredditposts", async (request, response) => {
+  console.log("Processing NEW/RETRY Reddit posts");
+  const { scrapes_queued, posts_analyzed, profiles_imported } =
+    await ProcessNewRedditPosts();
 
-  const limit = request.query.limit ?? LIMIT;
-  const after = request.query.after ?? null;
-
-  const { profilesArray, last, nonvideoPosts } = await ScrapeRedditForProfiles(
-    limit,
-    after
-  );
-
-  // chromaprofile
-  //   .insertMany(profilesArray)
-  //   .then(() => console.log("profilesArray inserted: ", profilesArray));
-
-  console.log("Last: ", last);
-
-  const profilesString = profilesArray
-    .map((post) => {
-      const downloadLinksString = post.OPcommentLinks.map(
-        (link) =>
-          `<div><a href=${link} target="_blank">Download ${link}</a></div>`
-      ).reduce((a, b) => a + b, "");
-      const analyzeLinksString = post.OPcommentLinks.map(
-        (link) =>
-          `<div><a href="/profile-analyzer/${urlencode(
-            link
-          )}" target="_blank">Analyze</a></div>`
-      ).reduce((a, b) => a + b, "");
-      return `<div style="
-            border: 1px solid grey; 
-            border-radius: 5px; 
-            margin: 5px;
-            padding: 10px; 
-            box-shadow: 3px 3px 5px #aaaaaa;
-          ">
-          <div><a href=${post.link}>${post.title}</a> - ${post.reddit_likes} likes</div>
-          <div>by ${post.OP}</div>
-          <div>
-            <video controls width="480" height="270" muted loop autoplay="autoplay">
-              <source type="video/mp4" src=${post.videoURL} />
-            </video>
-          </div>
-          <div>
-            <video controls width="480" height="30" muted loop autoplay="autoplay">
-              <source type="video/mp4" src=${post.audioURL} />
-            </video>
-          </div>
-          <div>${downloadLinksString}</div>
-          <div>${analyzeLinksString}</div>
-        </div>`;
-    })
-    .reduce((a, b) => a + b);
-
-  const nonprofilesString = nonvideoPosts
-    .map((post) => {
-      return `<div style="
-            display: flex;
-            border: 1px solid grey; 
-            border-radius: 5px; 
-            margin: 5px;
-            padding: 10px; 
-            box-shadow: 3px 3px 5px #aaaaaa;
-          ">
-          <div><img src=${post.data.thumbnail} /></div>
-          <div style="margin-left: 10px; width: 100%; display: flex; flex-direction: column">
-            <div><a href=${post.data.url}>${post.data.title}</a></div>
-            <div style="width: 100%; overflow-wrap: anywhere;">${post.data.selftext}</div>
-          </div>
-      </div>`;
-    })
-    .reduce((a, b) => a + b);
-
-  const url = `http://localhost:3001/redditscraper?limit=${limit}&after=${last}`;
-  const nextLinkString = `<div width="100%"><a href=${url}>next</a></div>`;
-
-  const responseString = `<div style="display: flex;">
-      <div>${profilesString}</div>
-      <div>${nonprofilesString}</div>
-    </div>
-  <div>${nextLinkString}</div>`;
-
-  response.send(responseString);
-});
-
-app.get("/videotest/", async (request, response) => {
-  const videoURL =
-    "https://v.redd.it/ub8ukmptrsn81/DASH_720.mp4?source=fallback";
-
-  const audioURL =
-    "https://v.redd.it/ub8ukmptrsn81/DASH_audio.mp4?source=fallback";
-
-  const videoString = `<video controls muted autoplay="autoplay"><source type="video/mp4" src=${videoURL} /></video>`;
-  const audioString = `<video controls muted autoplay="autoplay"><source type="video/mp4" src=${audioURL} /></video>`;
-
-  response.send(videoString + audioString);
+  response.json({ scrapes_queued, posts_analyzed, profiles_imported });
 });

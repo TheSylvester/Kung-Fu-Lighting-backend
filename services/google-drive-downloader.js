@@ -11,6 +11,7 @@ const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
 
 /**
  * downloads the file at fileid through google drive
+ * @param { string } fileid - Google file id to download
  * @returns the filename of the downloaded,
  *          or null if no file
  */
@@ -20,15 +21,22 @@ const DownloadFromGoogle = async (fileid) => {
   const MAXFILESIZE = 3000000;
 
   /* Get the fileName by querying Google Drive without &alt=media */
-  const response = await axios.get(url).catch((err) => console.log(err));
-  const fileName = response.data.name;
+  const response = await axios
+    .get(url)
+    .catch((err) => console.log(`${err.response.status} error`));
 
-  const dl = new DownloaderHelper(url + media_param, DIRECTORY, {
-    timeout: 10000,
-    fileName
-  });
+  // if the response is bad and you can't get a fileName then don't dl just reject();
+  const fileName = response.data.name ?? null;
+
+  const dl = fileName
+    ? new DownloaderHelper(url + media_param, DIRECTORY, {
+        timeout: 10000,
+        fileName
+      })
+    : null;
 
   return new Promise((resolve, reject) => {
+    if (!fileName) reject(); // no file, no download, no downloaded
     dl.on("download", async (downloadInfo) => {
       if (downloadInfo.totalSize > MAXFILESIZE) {
         console.log("Download is TOO LARGE");
@@ -57,12 +65,12 @@ const DownloadFromGoogle = async (fileid) => {
       }
     });
     dl.on("error", (err) => {
-      console.log(
+      /* console.log(
         "Download Failed (status,message,body) ",
         err.status,
         err.message,
         err.body
-      );
+      ); */
       return reject(err);
     });
     dl.on("end", async (downloadInfo) => {
@@ -70,7 +78,7 @@ const DownloadFromGoogle = async (fileid) => {
       resolve(downloadInfo.fileName);
     });
     dl.start().catch((err) => {
-      console.error(err);
+      // console.log(err);
       return reject(err);
     });
   });

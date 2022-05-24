@@ -1,0 +1,57 @@
+// MongoDB Playground
+// To disable this template go to Settings | MongoDB | Use Default Template For Playground.
+// Make sure you are connected to enable completions and to be able to run a playground.
+// Use Ctrl+Space inside a snippet or a string literal to trigger completions.
+
+// Select the database to use.
+use('kfldb');
+
+// db.redditposts.find({ id36: {$or: [ "bjngct", "bluqyy", "gkir2k"]} });
+// db.redditposts.find( { id36: { $in: ["bjngct", "bluqyy"] }});
+//  { $match: { id36: { $in: ["bjngct", "bluqyy"] } } },
+//     { $match: { created_utc: { $lt: 1562075807 } } },
+// { $lookup:
+//     {
+//         from: "chromaprofiles",
+//         localField: "profiles",
+//         foreignField: "_id",
+//         as: "profiles"
+//     }
+// }
+//     { $match: { "profiles.colours": {$regex: "#ffffff"} } }
+//      { $match: { "profiles.effects": { $in: ["audiometer", "starlight"] } } }
+//      { $match: { "profiles.colours": "#ffffff" } }
+//    { $match: { "profiles.1": {$exists: true} } }
+//      { $count: "total_double_profiles" }
+//      { $sort: { created_utc: -1 } },
+//     { $project: { _id: 0, title: 1, created_utc: 1 } }
+
+
+db.redditposts.aggregate([
+    { $match: { import_status: "OK"} },
+    { $lookup:
+        {
+            from: "chromaprofiles",
+            localField: "profiles",
+            foreignField: "_id",
+            as: "profiles"
+        }
+    },
+    { $sort: { created_utc: -1 } },
+    { $project: { _id: 0, title: 1, created_utc: 1 }},
+    { $skip: 5 },
+    { $limit: 5 }
+]);
+
+
+
+// Build an aggregation to view total sales for each product in 2014.
+// const aggregation = [
+//   { $match: { date: { $gte: new Date('2014-01-01'), $lt: new Date('2015-01-01') } } },
+//   { $group: { _id: '$item', totalSaleAmount: { $sum: { $multiply: [ '$price', '$quantity' ] } } } }
+// ];
+
+// Run the aggregation and open a cursor to the results.
+// Use toArray() to exhaust the cursor to return the whole result set.
+// You can use hasNext()/next() to iterate through the cursor page by page.
+// db.sales.aggregate(aggregation);

@@ -1,3 +1,26 @@
-GET http://localhost:3001/api/profile-analyzer/ HTTP/1.1
+GET http://localhost:3001/api/processnewredditposts/ HTTP/1.1
+
+###
+GET http://localhost:3001/api/scrapepushshift/ HTTP/1.1
+
+###
+GET http://localhost:3001/api/profiles HTTP/1.1
+
+###
+GET http://localhost:3001/api/profiles
+    ?devices=RAZER HUNTSMAN ELITE
+
+###
+GET http://localhost:3001/api/profiles
+    ?colours=#aeb2ff
+
+###
+GET https://api.pushshift.io/reddit/search/submission
+    ?subreddit=chromaprofiles
+    &is_video=true
+    &after=1512104400
+
+###
+GET https://www.reddit.com/r/ChromaProfiles.json
 
 ###

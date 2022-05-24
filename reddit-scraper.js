@@ -3,257 +3,298 @@ const rateLimit = require("axios-rate-limit");
 const markdownLinkExtractor = require("markdown-link-extractor");
 
 const axios_limited = rateLimit(axios.create(), { maxRPS: 60 });
-
 const ChromaProfilesURL = "http://www.reddit.com/r/ChromaProfiles";
 
-const ScrapeReddit = async (limit = 25, after = null) => {
-  /*
-   * Scrapes Reddit json and returns
-   * { array of COMPLETE video profiles scraped,
-   *   array of REJECTED video profiles with status
-   *   last t3 value used in scraping for pagination purposes }
-   *
-   * from reddit posts in /r/ChromaProfiles with video in them
-   * we find comments made by OP and any links they left,
-   * which we assume to be download links
-   */
+const Redditpost = require("./models/redditpost");
+const Chromaprofile = require("./models/chromaprofile");
 
-  let redditJSON = await GetRedditJSON(limit, after);
+const { AnalyzeLink } = require("./profile-analyzer");
 
-  /* reddit provides 'after' (last t3_id36 in the list) as a
-   * bookmark for you to pass back in for pagination */
-  const last = redditJSON?.data?.after;
-
-  let videoPosts = redditJSON.data.children.filter(
-    (post) => post.data.is_video
-  );
-
-  if (!videoPosts || videoPosts.length === 0)
-    return { newProfiles: [], rejectedProfiles: [], last }; /* early exit */
-
-  const postData = videoPosts.map((post) => ExtractDataFromPost(post));
-
-  // map with async callbacks return promises
-  // as the return value is yet unknown at the time of assignment
-  const dataPromises = postData.map(async (post) => {
-    /* retrieve comments, all links from comments, and OP's comments in the root of the post in case */
-    const commentsJSON = await GetCommentsJSON(post.id36);
-    const OPcommentLinks = ExtractOPCommentLinks(commentsJSON, post.OP_id);
-    const OProotComments = ExtractOProotComments(commentsJSON, post.OP_id);
-
-    return OPcommentLinks || OProotComments
-      ? { ...post, OPcommentLinks, OProotComments }
-      : post;
-  });
-  // wait until all promises complete before assigning
-  const fullData = await Promise.all(dataPromises); // fullData now has OP links and comments
-
-  const { newProfiles, rejectedProfiles } = await AnalyzeScrapes(fullData);
-
-  /* chromaprofiles.insertMany(newProfiles.filterunique())
-   * rejectedprofiles.insertMany(rejectedProfiles.filterunique()); */
-
-  return { newProfiles, rejectedProfiles, last };
-};
-
-const GetRedditJSON = async (limit = 25, after = null) => {
-  const response = await axios_limited.get(`${ChromaProfilesURL}.json`, {
-    params: { limit, after }
-  });
-  // console.log("GetRedditJSON headers: ", response.headers);
-  return response.data;
-};
-
-const GetCommentsJSON = async (id36) => {
+/**
+ * Retrieves the json from Reddit for a post by its id36
+ * @param { String } id36 - id36 of the post to retrieve
+ * @returns { Object } data - return object
+ * @returns { Object } data.postDetails - full JSON details of the post
+ * @returns { Array } data.commentsArray - Comments attached to the post
+ */
+const GetJSONFromPost = async (id36) => {
   const response = await axios_limited.get(
     `${ChromaProfilesURL}/comments/${id36}.json`
   );
-  // console.log("GetCommentsJSON headers: ", response.headers);
-  const arrayOfPosts = response.data[1].data.children;
-  return arrayOfPosts;
+
+  const postDetailsJSON = response.data[0].data.children[0].data;
+  const commentsJSON = response.data[1].data.children;
+
+  return { postDetailsJSON, commentsJSON };
 };
 
-const ExtractOProotComments = (comments, OP = null) => {
+/**
+ * Extracts an array of all comments made by OP
+ * recursively finds children
+ * @param { Array } commentsJSON - array of raw reddit-format comments from GetJSONFromPost().commentsJSON
+ * @param { String } OP - id of the OP (author_fullname)
+ * @returns { Array } strings of comments made by the OP
+ */
+const GetOPcomments = (commentsJSON, OP) => {
   let OPcomments = [];
-
-  comments.forEach((comment) => {
-    if (!OP || comment.data.author_fullname === OP) {
-      OPcomments.push(comment.data.body);
-    }
-  });
-
-  return OPcomments;
-};
-
-const Extract_MarkdownLinkExtractor = (comment) => {
-  const { links } = markdownLinkExtractor(comment, true); // extended output to get raw md to filter out
-
-  if (!links) return { raw: [], href: [] };
-
-  const raw = links.map((link) => link.raw);
-  const href = links.map((link) => link.href);
-
-  return { raw, href };
-};
-
-const ExtractOPCommentLinks = (comments, OP = null) => {
-  /*****************************************************
-   * accepts raw json comments listing t1_ from reddit
-   * Extract with markdown-link-extractor
-   *****************************************************/
-
-  let OPcommentLinks = [];
-
-  comments.forEach((comment) => {
-    if (!OP || comment.data.author_fullname === OP) {
+  // loops through each comment
+  // finds the fulltext of the comment
+  commentsJSON.forEach((comment) => {
+    if (comment.data.author_fullname === OP || !OP) {
+      // save non-empty comment body, and check for replies
       const commentBody = comment.data.body;
-
-      const { raw, href } = Extract_MarkdownLinkExtractor(commentBody);
-
-      if (href.length > 0) {
-        href.forEach((link) => OPcommentLinks.push(link));
-      }
+      OPcomments.push(commentBody);
     }
-
-    /* recursively search comment replies */
+    // recurse for children if there are replies
     if (comment.data.replies) {
-      const childCommentsList = ExtractOPCommentLinks(
+      const childCommentsList = GetOPcomments(
         comment.data.replies.data.children,
         OP
       );
       if (childCommentsList) {
-        OPcommentLinks = OPcommentLinks.concat(childCommentsList);
+        OPcomments = OPcomments.concat(childCommentsList);
       }
     }
   });
-
-  // const returnLinks = OPcommentLinks.map((link) => ConvertGDriveLink(link));
-  // const unique_returnLinks = [...new Set(returnLinks)];
-  const unique_returnLinks = [...new Set(OPcommentLinks)];
-
-  return unique_returnLinks;
+  return OPcomments;
 };
 
-const ConvertGDriveLink = (url) => {
-  /************************************************************************
-   * Receives a url (for a google drive link) and returns a download link
-   * (?:https:\/\/drive.google.com\/file\/d\/)(.*)(?:\/view\?usp=sharing)
-   * (?:https:\/\/drive\.google\.com\/open\?id=)(.*)$
-   *
-   * OLD downloadURL = `https://drive.google.com/uc?id=${fileId}&export=download`
-   * Google API downloadURL = `https://www.googleapis.com/drive/v3/files/${fileId}`;
-   ************************************************************************/
+/**
+ * Extracts an array of links from array of markdown comment strings
+ * @param { Array } comments - array of Strings of reddit comments (in markdown)
+ * @returns { Array } - array of links found in the comments
+ */
+const GetLinksFromComments = (comments) => {
+  let links = [];
+  comments.forEach((comment) => {
+    const extracted_links = comment ? ExtractLinksFromMD(comment) : [];
+    if (extracted_links.length > 0) links = links.concat(extracted_links);
+  });
 
-  const gdrive_regexs = [
-    /(?:https:\/\/drive\.google\.com\/file\/d\/)(.*)(?:\/view)/gi,
-    /(?:https:\/\/drive\.google\.com\/open\?id=)(.*)$/gi
-  ];
-
-  let returnLink = url;
-
-  for (const regex of gdrive_regexs) {
-    returnLink = (function (link, regex) {
-      const match = regex.exec(link);
-      if (!match) return link; // early return link is not a g drive link, returns unaltered
-
-      const fileId = match[1]; // match[1] will be the 1st capture group (.*)
-      const downloadURL = `https://drive.google.com/uc?id=${fileId}&export=download`;
-      return downloadURL;
-    })(returnLink, regex);
-  }
-
-  return returnLink;
+  return [...new Set(links)]; // unique links only enforced by Set
 };
 
-const ExtractDataFromPost = (postJSON) => {
-  /*
-   *  Extract data from a single t3 article
-   */
-  const data = postJSON?.data;
+/**
+ * Extracts markdown links from reddit comment written in markdown
+ * @param { string } comment - comment with markdown text and possibly links
+ * @returns { Array } links - href of the links
+ */
+const ExtractLinksFromMD = (comment) => {
+  const { links } = markdownLinkExtractor(comment, true); // extended output to get raw md to filter out
+  if (!links) return null;
+  const href = links.map((link) => link.href);
+  if (href?.length > 0) console.log(`Extracted LINK: ${href}`);
+  return href;
+};
 
-  const name_regex = /^t3_/g;
-  const name = data?.name;
-  const id36 = name?.replace(name_regex, "");
-  const title = data.title;
-  const link = `https://www.reddit.com${data.permalink}`;
+/**
+ * Checks the Redditpostinfo Database for NEW posts via import_status
+ * @returns { Array } NEW | RETRY scrapes in the DB
+ */
+const GetUnprocessedPostsFromDB = async () => {
+  // tell Mongoose that all I need is a plain JavaScript version of the returned doc by using lean()
+  const posts = await Redditpost.find()
+    .or({ import_status: "NEW" }, { import_status: "RETRY" })
+    .lean()
+    .exec();
+  return posts;
+};
 
-  const OP_id = data?.author_fullname; /* find OP */
-  const OP = data?.author;
+/**
+ * retrieves comments and tests links in comments for profiles
+ * returns an object with video details including an array of analysed downloadable profiles
+ * @param { Object } redditpost - redditpost data as stored in db
+ *
+ * @returns { Object, Array } updatedRedditpost, profiles
+ */
+const ProcessRedditpost = async (redditpost) => {
+  // get fresh json from reddit based on the id36 passed in
+  const { postDetailsJSON, commentsJSON } = await GetJSONFromPost(
+    redditpost.id36
+  );
 
-  const reddit_likes = data?.ups - data?.downs;
-  const created_utc = data?.created_utc * 1000;
-  const scraped_utc = Date.now();
+  // first process the updated detailed parameters, then do comments, links and profiles
+  const postDetails = GetPostDetailsFromJSON(postDetailsJSON); // get updated
+  // use updated OP_id from postDetails
+  const OPcomments = GetOPcomments(commentsJSON, postDetails.OP_id);
+  const newRawLinks = GetLinksFromComments(OPcomments); // [ { string } ]
+  const oldLinks = redditpost.OPcommentLinks; // [ { link, link_status } ]
 
+  // const linkExistsInLinks = (linksArray, href) =>
+  //   linksArray.find((link) => linksArray.link === href);
+  const newLinks = newRawLinks.map((newLink) => {
+    const link_status = oldLinks.find(
+      (oldlink) => oldlink.link === newLink.link
+    )
+      ? oldLinks.link_status
+      : "NEW";
+    return {
+      link: newLink,
+      link_status
+    };
+  });
+  // Analyze the Links [ { link, link_status } ] and give me { OPcommentLinks, profiles: { Array } }
+
+  // take newLinks and run it through AnalyzeLink, flat(), and turn it into OPcommentLinks, Profiles
+  const analysis_array = await Promise.all(
+    newLinks.map(async (linkBlock) => {
+      if (
+        linkBlock.link_status !== "NEW" &&
+        linkBlock.link_status !== "RETRY"
+      ) {
+        return { linkBlock, profiles: [] };
+      } // early exit if already rejected before
+      return await AnalyzeLink(linkBlock.link);
+    })
+  );
+
+  const OPcommentLinks = analysis_array.map((analysis) => analysis.linkBlock);
+  const profiles = analysis_array.map((analysis) => analysis.profiles).flat(1);
+
+  const import_status = OPcommentLinks.find((link) => link.link_status === "OK")
+    ? "OK"
+    : OPcommentLinks.find((link) => link.link_status === "RETRY")
+    ? "RETRY"
+    : "REJECTED";
+  console.log("import_status: ", import_status);
+
+  return {
+    updatedRedditpost: {
+      ...redditpost,
+      import_status,
+      OPcomments,
+      OPcommentLinks,
+      profiles: [],
+      ...postDetails
+    },
+    profiles
+  };
+};
+
+/**
+ * @param { object } postJSON - JSON details for the post from reddit
+ *
+ * @returns { object } extracted_data
+ * @returns { string } extracted_data.OP - OP's Readable Name
+ * @returns { string } extracted_data.OP_id - OP's t2_id36
+ * @returns { string } extracted_data.score - current reddit up/down vote score
+ * @returns { boolean } extracted_data.archived -
+ * @returns { boolean } extracted_data.locked -
+ * @returns { string } extracted_data.videoURL -
+ * @returns { string } extracted_data.audioURL -
+ * @returns { string } extracted_data.dashURL -
+ * @returns { string } extracted_data.duration -
+ * @returns { number } extracted_data.height -
+ * @returns { number } extracted_data.width -
+ * @returns { string } extracted_data.thumbnail -
+ */
+const GetPostDetailsFromJSON = (postJSON) => {
+  const data = postJSON;
   const DASH_regex = /([A-Z])\w+/g;
+
+  const OP = data.author;
+  const OP_id = data.author_fullname;
+
+  const archived = data.archived;
+  const locked = data.locked;
+
+  const score = data.score;
   const videoURL = data?.media?.reddit_video?.fallback_url;
   const audioURL = videoURL?.replace(DASH_regex, "DASH_audio");
+  const dashURL = data?.dash_url;
+  const duration = data?.duration;
+  const height = data?.height;
+  const width = data?.width;
   const thumbnail = data?.thumbnail;
 
-  const extracted_data = {
-    id36,
-    title,
-    link,
+  return (extracted_data = {
     OP,
     OP_id,
-    reddit_likes,
-    created_utc,
-    scraped_utc,
+    archived,
+    locked,
+    score,
     videoURL,
     audioURL,
+    dashURL,
+    duration,
+    height,
+    width,
     thumbnail
-  };
-
-  return extracted_data;
-};
-
-const ScrapeRedditForProfiles = async (limit = 25, after = null) => {
-  /*
-   * Scrapes Reddit json and returns an array of profiles
-   * from reddit posts in /r/ChromaProfiles with video in them
-   * we find comments made by OP and any links they left,
-   * which we assume to be download links
-   */
-
-  let profilesArray = [];
-  let redditJSON = await GetRedditJSON(limit, after);
-
-  const last =
-    redditJSON?.data
-      ?.after; /* reddit provides after (last t3_id36 in the list) for easy pagination */
-
-  let videoPosts = redditJSON.data.children.filter(
-    (post) => post.data.is_video
-  );
-
-  /* get non-video posts too for inspection, save everything I guess */
-  let nonvideoPosts = redditJSON.data.children.filter(
-    (post) => !post.data.is_video
-  );
-
-  if (!videoPosts || videoPosts.length === 0)
-    return { profilesArray: [], last }; /* early exit */
-
-  const postData = videoPosts.map((post) => ExtractDataFromPost(post));
-
-  const dataPromises = postData.map(async (post) => {
-    const commentsJSON = await GetCommentsJSON(post.id36);
-    const OPcommentLinks = ExtractOPCommentLinks(commentsJSON, post.OP_id);
-    const OProotComments = ExtractOProotComments(commentsJSON, post.OP_id);
-
-    // map with async function returns promises
-    return OPcommentLinks || OProotComments
-      ? { ...post, OPcommentLinks, OProotComments }
-      : post;
   });
-  // wait until all promises complete before assigning
-  const fullData = await Promise.all(dataPromises);
-
-  profilesArray = [...profilesArray, ...fullData];
-
-  return { profilesArray, last, nonvideoPosts };
 };
 
-exports.ScrapeRedditForProfiles = ScrapeRedditForProfiles;
-exports.GetCommentsJSON = GetCommentsJSON;
-exports.ExtractOPCommentLinks = ExtractOPCommentLinks;
-exports.ExtractOProotComments = ExtractOProotComments;
+/**
+ * Transform NEW Redditpost scrapes
+ * into Chromaprofiles
+ * or mark the scrape REJECTED
+ */
+const ProcessNewRedditPosts = async () => {
+  // get all the new posts waiting to be processed from the scrapes DB
+  // shift them off one by one, stopping if 403 RETRY or ran out of scrapes
+
+  let retry_error = false;
+  let profiles_imported = 0,
+    posts_analyzed = 0,
+    scrapes_queued = 0;
+
+  let redditposts = await GetUnprocessedPostsFromDB();
+  scrapes_queued = redditposts?.length; // Total scrapes we're starting with
+  console.log("Scrapes Queued for Processing: ", scrapes_queued);
+
+  // loop until we run out of scrapes or hit a 403
+  while (redditposts && redditposts.length > 0 && !retry_error) {
+    // shift instead of forEach because we need to stop if 403
+    const scrapedRedditpost = redditposts.shift();
+    console.log(
+      `scrapedRedditpost id: ${scrapedRedditpost.id36}\ntitle: ${scrapedRedditpost.title}`
+    );
+
+    const { updatedRedditpost, profiles: rawProfiles } =
+      await ProcessRedditpost(scrapedRedditpost);
+    // insert any newly found profiles into DB, then update the Redditpost with profiles._ids returned
+    const profiles = await (async (newProfiles) => {
+      // quick passthrough return empty array if there were no profiles here
+      if (newProfiles.length <= 0) return [];
+      // happy path = there are profiles, lets insert them
+      // give profile a redditpost so we can insert into DB
+      const insertableProfiles = newProfiles.map((profile) => ({
+        redditpost: scrapedRedditpost._id,
+        ...profile
+      }));
+
+      let profile_ids = []; // array of profile id's
+      try {
+        profile_ids = await Chromaprofile.insertMany(insertableProfiles, {
+          ordered: false
+        });
+        console.log(insertableProfiles, " ...profiles saved...");
+      } catch (e) {
+        console.log(e);
+      }
+      return profile_ids;
+    })(rawProfiles);
+
+    try {
+      await Redditpost.findOneAndUpdate(
+        { _id: scrapedRedditpost._id },
+        { ...updatedRedditpost, profiles }
+      ).exec();
+      posts_analyzed++; // increment posts analyzed
+    } catch (e) {
+      console.log(e);
+    }
+
+    profiles_imported += profiles.length; // increase the count of profiles
+
+    // on 403 error break the while loop
+    if (updatedRedditpost.import_status === "RETRY") retry_error = true;
+  } // while
+
+  console.log(`Total Scrapes Queued: ${scrapes_queued}`);
+  console.log(`Posts Analyzed: ${posts_analyzed}`);
+  console.log(`Profiles imported: ${profiles_imported}`);
+
+  return { scrapes_queued, posts_analyzed, profiles_imported };
+};
+
+exports.ProcessNewRedditPosts = ProcessNewRedditPosts;

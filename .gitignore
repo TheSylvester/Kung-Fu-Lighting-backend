@@ -43,3 +43,12 @@ node_modules/
 
 # service key
 kung-fu-lighting-705b8fd37ff2.json
+
+# exclude profile downloads folder
+downloads/
+
+# exclude REST tester files
+REST/
+
+# exclude the code sandbox scratchpad
+scratchrepl.js
