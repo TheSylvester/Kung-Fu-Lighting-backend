@@ -44,11 +44,22 @@ node_modules/
 # service key
 kung-fu-lighting-705b8fd37ff2.json
 
-# exclude profile downloads folder
+# exclude profile downloads and other downloads
 downloads/
+profile-archives/
 
 # exclude REST tester files
 REST/
 
-# exclude the code sandbox scratchpad
+# mongodb playground stuff
+mongodb-playground.mongodb
+mongodb-playground copy.mongodb
+
+# scratch files
 scratchrepl.js
+test.html
+
+
+
+
+
