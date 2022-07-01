@@ -6,6 +6,7 @@ const axios = require("axios");
 
 const DIRECTORY = `./downloads/`;
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
+const MAXFILESIZE = 3000000;
 
 // const CREDENTIALSFILE = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
@@ -18,7 +19,6 @@ const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
 const DownloadFromGoogle = async (fileid) => {
   const url = `https://www.googleapis.com/drive/v3/files/${fileid}?key=${GOOGLE_API_KEY}`;
   const media_param = "&alt=media";
-  const MAXFILESIZE = 3000000;
 
   /* Get the fileName by querying Google Drive without &alt=media */
   const response = await axios
@@ -31,7 +31,7 @@ const DownloadFromGoogle = async (fileid) => {
   const dl = fileName
     ? new DownloaderHelper(url + media_param, DIRECTORY, {
         timeout: 10000,
-        fileName
+        fileName,
       })
     : null;
 
@@ -40,7 +40,7 @@ const DownloadFromGoogle = async (fileid) => {
     dl.on("download", async (downloadInfo) => {
       if (downloadInfo.totalSize > MAXFILESIZE) {
         console.log("Download is TOO LARGE");
-        dl.stop();
+        await dl.stop();
         reject();
       }
       /* this tests file extension, but we are assigning file extension */
@@ -49,7 +49,7 @@ const DownloadFromGoogle = async (fileid) => {
       const extension = match ? match[0] : "";
       if (extension !== ".ChromaEffects" && extension !== ".zip") {
         console.log("Download Not a .ChromaEffects or .zip");
-        dl.stop();
+        await dl.stop();
         reject();
       }
       /* end file extension test */
@@ -60,7 +60,7 @@ const DownloadFromGoogle = async (fileid) => {
       );
       if (downloadInfo.downloaded > MAXFILESIZE) {
         console.log("Downloaded ALREADY too big, stopping now...");
-        dl.stop();
+        await dl.stop();
         reject();
       }
     });
@@ -90,7 +90,7 @@ const limiter = new Bottleneck({
   reservoirRefreshAmount: 50,
   reservoirRefreshInterval: 10 * 1000, // must be divisible by 250
   maxConcurrent: 1,
-  minTime: 250
+  minTime: 250,
 });
 const DownloadFromGoogle_limited = limiter.wrap(DownloadFromGoogle);
 

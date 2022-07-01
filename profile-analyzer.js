@@ -1,3 +1,5 @@
+// noinspection JSValidateTypes
+
 const { DownloaderHelper } = require("node-downloader-helper");
 const Bottleneck = require("bottleneck");
 const DownloadFromGoogle = require("./services/google-drive-downloader");
@@ -19,7 +21,7 @@ const PROFILESDIRECTORY = `./profile-archives/`;
  * Download, Extract, & XML-Query link provided
  * only download if it's a google link
  * @param {String} link - url to analyze
- * @returns { linkBlock: { LinkBlock }, profiles: [ { devices: [], colours: [] } ] }
+ * @returns {{ linkBlock: { LinkBlock }, profiles: [ { devices: [], colours: [] } ] }}
  */
 const AnalyzeLink = async (link) => {
   console.log("...Analyzing ", link);
@@ -31,15 +33,15 @@ const AnalyzeLink = async (link) => {
     return {
       linkBlock: {
         link,
-        link_status: "NOT A GOOGLE LINK"
+        link_status: "NOT A GOOGLE LINK",
       },
-      profiles: []
+      profiles: [],
     }; // early exit if no download available
 
   /* download the profile - get the filename
    * if it's a 403 error 'cause Google's flood protection trips, RETRY later */
   let error403 = false;
-  const downloadedfile = await DownloadFromGoogle(fileid).catch((error) => {
+  const downloadedFile = await DownloadFromGoogle(fileid).catch((error) => {
     error403 = error && (error.status === 403 || error.status === "403");
     console.log(
       error403
@@ -48,22 +50,22 @@ const AnalyzeLink = async (link) => {
     );
   });
 
-  if (!downloadedfile)
+  if (!downloadedFile)
     return {
       linkBlock: { link, link_status: error403 ? "RETRY" : "DOWNLOAD FAILED" },
-      profiles: []
+      profiles: [],
     }; // early exit if no download available
-  if (!downloadedfile.match(/\.ChromaEffects$/)) {
+  if (!downloadedFile.match(/\.ChromaEffects$/)) {
     /* need to do a recursion here for .rar or .zip files */
     return {
       linkBlock: { link, link_status: "NOT A .CHROMAEFFECT" },
-      profiles: []
+      profiles: [],
     };
   }
 
   /* extract the profile */
   const fileNames = await ExtractProfile(
-    `${DIRECTORY}${downloadedfile}`,
+    `${DIRECTORY}${downloadedFile}`,
     DIRECTORY
   ).catch((error) => {
     console.error("Extract Error: ", error);
@@ -71,16 +73,16 @@ const AnalyzeLink = async (link) => {
 
   /* Extract unsuccessful, delete file and early exit */
   if (!fileNames || fileNames.length === 0) {
-    fs.unlink(`${DIRECTORY}${downloadedfile}`, (err) => {
+    fs.unlink(`${DIRECTORY}${downloadedFile}`, (err) => {
       if (err) {
         console.error(err);
         return;
       }
-      console.log("file deleted for cleanup ", downloadedfile);
+      console.log("file deleted for cleanup ", downloadedFile);
     });
     return {
       linkBlock: { link, link_status: "EXTRACT FAILED" },
-      profiles: []
+      profiles: [],
     }; // early exit if can't extract
   }
 
@@ -122,29 +124,30 @@ const AnalyzeLink = async (link) => {
 
   if (link_status === "OK") {
     fs.rename(
-      `${DIRECTORY}${downloadedfile}`,
-      `${PROFILESDIRECTORY}${downloadedfile}`,
+      `${DIRECTORY}${downloadedFile}`,
+      `${PROFILESDIRECTORY}${downloadedFile}`,
       (err) => {
         if (err) {
           console.error(err);
           return;
         }
         console.log(
-          "** downloadedfile moved to Profiles Archive **",
-          downloadedfile
+          "** downloadedFile moved to Profiles Archive **",
+          downloadedFile
         );
       }
     );
   } else {
-    fs.unlink(`${DIRECTORY}${downloadedfile}`, (err) => {
+    fs.unlink(`${DIRECTORY}${downloadedFile}`, (err) => {
       if (err) {
         console.error(err);
         return;
       }
-      console.log("downloadedfile deleted for cleanup", downloadedfile);
+      console.log("downloadedFile deleted for cleanup", downloadedFile);
     });
   }
 
+  // TODO: - Human downloadable google link here (get from index?)
   console.log("linkBlock: ", { link, link_status }, " profiles: ", profiles);
 
   return { linkBlock: { link, link_status }, profiles };
@@ -154,11 +157,11 @@ const AnalyzeLink = async (link) => {
  * @returns fileId if this is a gdrive link, or null
  * @param {String} url
  */
-const GetFileIdFromGDriveLink = (url) => {
+function GetFileIdFromGDriveLink(url) {
   const gdrive_regexs = [
     /(?:https:\/\/drive\.google\.com\/file\/d\/)(.*)(?:\/view)/gi,
     /(?:https:\/\/drive\.google\.com\/open\?id=)(.*)$/gi,
-    /(?:https:\/\/drive\.google\.com\/uc\?id=)(.*)&export=download/gi
+    /(?:https:\/\/drive\.google\.com\/uc\?id=)(.*)&export=download/gi,
   ];
 
   const fileid = gdrive_regexs
@@ -172,7 +175,7 @@ const GetFileIdFromGDriveLink = (url) => {
     });
 
   return fileid;
-};
+}
 
 const readFilePromise = (...args) => {
   /* promisify fs */
@@ -224,7 +227,7 @@ const AnalyzeXMLFile = async (xmlfile) => {
 
   /* uses Set() to filter out unique colours */
   const colours = [
-    ...new Set(allColours.map((colour) => ConvertRGBtoHex(colour)))
+    ...new Set(allColours.map((colour) => ConvertRGBtoHex(colour))),
   ];
 
   const allEffects = xq
@@ -232,7 +235,7 @@ const AnalyzeXMLFile = async (xmlfile) => {
     .find("Effect")
     .map((effect) => effect.children[0].value);
   const effects = [
-    ...new Set(allEffects.filter((effect) => effect !== "none"))
+    ...new Set(allEffects.filter((effect) => effect !== "none")),
   ];
   console.log("EFFECTS: ", effects);
 
@@ -269,7 +272,9 @@ const ExtractProfile = async (source, target) => {
   } catch (err) {
     // handle any errors
     console.log("Extraction Failed: ", err);
+    return null;
   }
 };
 
 exports.AnalyzeLink = AnalyzeLink;
+exports.GetFileIdFromGDriveLink = GetFileIdFromGDriveLink;

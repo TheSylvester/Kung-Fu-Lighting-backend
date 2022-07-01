@@ -4,6 +4,7 @@ const Redditpost = require("./models/redditpost");
 
 const axios_limited = rateLimit(axios.create(), { maxRPS: 60 });
 
+/** @constant { string } */
 const PushshiftURL = "https://api.pushshift.io/reddit/search/submission";
 
 /**
@@ -11,30 +12,22 @@ const PushshiftURL = "https://api.pushshift.io/reddit/search/submission";
  * @param { object } options -
  * @param { string } options.from_utc - before
  * @param { string } options.to_utc - after
- * @returns { number } - # of scrapes inserted into DB
+ * @returns { number } - number of scrapes inserted into DB
  */
-const ScrapePushshift = async ({ from_utc = null, to_utc = null }) => {
+const ScrapePushshift = async ({ from_utc = "", to_utc = "" }) => {
   const pushshiftJSON = await GetJSONFromPushshift({
     after: from_utc,
-    before: to_utc
+    before: to_utc,
   });
   console.log("# of Pushshift Video Results: ", pushshiftJSON.length);
   const redditposts = pushshiftJSON.map((submission) =>
     GetRedditpostFromSubmission(submission)
   );
-  // filter for unique posts not in DB already
-  // const unique_redditposts = await Promise.all(
-  //   redditposts.filter(async (post) => {
-  //     const retval = !(await Redditpost.findOne({ id36: post.id36 }));
-  //     return retval;
-  //   })
-  // );
 
-  // insertMany(), ordered = false
   let inserted = [];
   try {
     inserted = await Redditpost.insertMany(redditposts, {
-      ordered: false
+      ordered: false,
     });
   } catch (e) {
     console.log("InsertMany Error: ", e);
@@ -48,15 +41,23 @@ const ScrapePushshift = async ({ from_utc = null, to_utc = null }) => {
 };
 
 /**
- *  @param { object } submissionJSON - JSON response from Pushshift for a submission
- *  @returns { object } - Redditpost mongo schema from a pushshift submission
+ *  @param { Object } submissionJSON - JSON response from Pushshift
+ *  @property { string } submissionJSON.id36 - Reddit post id
+ *  @property { string } submissionJSON.title - Post title
+ *  @property { string } submissionJSON.permalink - Link to original reddit post
+ *  @property { string } submissionJSON.author -
+ *  @property { string } submissionJSON.author_fullname -
+ *  @property { number }  submissionJSON.created_utc -
+ *  @property { number }  submissionJSON.scraped_utc -
+ *  @property { number }  submissionJSON.score -
+ *  @returns { Redditpost } - Redditpost mongo schema from a pushshift submission
  */
 const GetRedditpostFromSubmission = (submissionJSON) => {
   const data = submissionJSON;
 
-  const id36 = data.id;
   const title = data.title;
   const link = `https://www.reddit.com${data.permalink}`;
+  const id36 = data.id;
   const OP = data.author;
   const OP_id = data.author_fullname ?? ""; // pushshift doesn't have author_fullname
   const OPcomments = [];
@@ -66,7 +67,7 @@ const GetRedditpostFromSubmission = (submissionJSON) => {
   const created_utc = data?.created_utc; // I have a feeling it's not *1000 like reddit
   const scraped_utc = Math.floor(Date.now() / 1000);
 
-  const score = data.score ?? 0;
+  const score = Number(data.score) ?? 0;
   const videoURL = "";
   const audioURL = "";
   const dashURL = "";
@@ -78,7 +79,7 @@ const GetRedditpostFromSubmission = (submissionJSON) => {
   const profiles = [];
   const import_status = "NEW"; // [ NEW || COMPLETE || RETRY || DEAD ]
 
-  return {
+  return /** @type { Redditpost } */ {
     id36,
     title,
     link,
@@ -91,8 +92,6 @@ const GetRedditpostFromSubmission = (submissionJSON) => {
     created_utc,
     scraped_utc,
     score,
-    archived,
-    locked,
     videoURL,
     audioURL,
     dashURL,
@@ -101,14 +100,16 @@ const GetRedditpostFromSubmission = (submissionJSON) => {
     width,
     thumbnail,
     profiles,
-    import_status
+    import_status,
   };
 };
 
 /**
- * @param { number } after - unix timestamp of created_utc
- * @returns { object } JSON from api.pushshift.io
- * ... beautifully filtered for video and sorted asc and limited 500 results of JSON :)
+ * Fetches all results from pushshift.io until no more new results
+ * filtered for video, sorted asc
+ * @param { number } after - filter for > unix timestamp of created_utc
+ * @param { number } before - filter for < unix timestamp of created_utc
+ * @returns { Object[] } JSON results array from api.pushshift.io
  */
 const GetJSONFromPushshift = async ({ after, before }) => {
   const subreddit = "chromaprofiles";
@@ -122,7 +123,7 @@ const GetJSONFromPushshift = async ({ after, before }) => {
 
   do {
     response = await axios_limited.get(`${PushshiftURL}`, {
-      params: { after, before, subreddit, is_video, size, sort, sort_type }
+      params: { after, before, subreddit, is_video, size, sort, sort_type },
     });
     console.log("Response.data.data.length: ", response.data.data?.length);
     if (response.data.data && response.data.data.length > 0) {

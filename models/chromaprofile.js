@@ -7,7 +7,7 @@ const chromaprofileSchema = new mongoose.Schema({
   name: String,
   devices: [String],
   colours: [String],
-  effects: [String]
+  effects: [String],
 });
 
 chromaprofileSchema.set("toJSON", {
@@ -15,7 +15,7 @@ chromaprofileSchema.set("toJSON", {
     returnedObject.id = returnedObject._id.toString();
     delete returnedObject._id;
     delete returnedObject.__v;
-  }
+  },
 });
 
 const Chromaprofile = mongoose.model("Chromaprofile", chromaprofileSchema);

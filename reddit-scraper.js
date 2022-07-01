@@ -93,24 +93,25 @@ const ExtractLinksFromMD = (comment) => {
  */
 const GetUnprocessedPostsFromDB = async () => {
   // tell Mongoose that all I need is a plain JavaScript version of the returned doc by using lean()
-  const posts = await Redditpost.find()
-    .or({ import_status: "NEW" }, { import_status: "RETRY" })
+  const posts = await Redditpost.find({
+    $or: [{ import_status: "NEW" }, { import_status: "RETRY" }],
+  })
     .lean()
     .exec();
   return posts;
 };
 
 /**
- * retrieves comments and tests links in comments for profiles
+ * GET from Reddit an update, retrieves comments and tests links in comments for profiles
  * returns an object with video details including an array of analysed downloadable profiles
- * @param { Object } redditpost - redditpost data as stored in db
+ * @param { Redditpost | string } redditpost - redditpost object to get id36 from or the id36 itself
  *
- * @returns { Object, Array } updatedRedditpost, profiles
+ * @returns { { updatedRedditpost: Redditpost, profiles: *[] } } Updated Reddit post and the profiles
  */
 const ProcessRedditpost = async (redditpost) => {
   // get fresh json from reddit based on the id36 passed in
   const { postDetailsJSON, commentsJSON } = await GetJSONFromPost(
-    redditpost.id36
+    typeof redditpost === "string" ? redditpost : redditpost.id36
   );
 
   // first process the updated detailed parameters, then do comments, links and profiles
@@ -124,13 +125,13 @@ const ProcessRedditpost = async (redditpost) => {
   //   linksArray.find((link) => linksArray.link === href);
   const newLinks = newRawLinks.map((newLink) => {
     const link_status = oldLinks.find(
-      (oldlink) => oldlink.link === newLink.link
+      (oldLink) => oldLink.link === newLink.link
     )
       ? oldLinks.link_status
       : "NEW";
     return {
       link: newLink,
-      link_status
+      link_status,
     };
   });
   // Analyze the Links [ { link, link_status } ] and give me { OPcommentLinks, profiles: { Array } }
@@ -165,28 +166,48 @@ const ProcessRedditpost = async (redditpost) => {
       OPcomments,
       OPcommentLinks,
       profiles: [],
-      ...postDetails
+      ...postDetails,
     },
-    profiles
+    profiles,
   };
 };
 
 /**
- * @param { object } postJSON - JSON details for the post from reddit
- *
- * @returns { object } extracted_data
- * @returns { string } extracted_data.OP - OP's Readable Name
- * @returns { string } extracted_data.OP_id - OP's t2_id36
- * @returns { string } extracted_data.score - current reddit up/down vote score
- * @returns { boolean } extracted_data.archived -
- * @returns { boolean } extracted_data.locked -
- * @returns { string } extracted_data.videoURL -
- * @returns { string } extracted_data.audioURL -
- * @returns { string } extracted_data.dashURL -
- * @returns { string } extracted_data.duration -
- * @returns { number } extracted_data.height -
- * @returns { number } extracted_data.width -
- * @returns { string } extracted_data.thumbnail -
+ * @typedef { Object } extracted_data
+ * @property { string } OP - OP's Readable Name
+ * @property { string } OP_id - OP's t2_id36
+ * @property { string } score - current reddit up/down vote score
+ * @property { boolean } archived -
+ * @property { boolean } locked -
+ * @property { string } videoURL -
+ * @property { string } audioURL -
+ * @property { string } hlsURL -
+ * @property { string } duration -
+ * @property { number } height -
+ * @property { number } width -
+ * @property { string } thumbnail -
+ */
+
+/**
+ * @typedef { Object } postJSON
+ * @property { string } author - OP's Readable Name
+ * @property { string } author_fullname - OP's t2_id36
+ * @property { string } score - current reddit up/down vote score
+ * @property { boolean } archived -
+ * @property { boolean } locked -
+ * @property { string } videoURL -
+ * @property { string } audioURL -
+ * @property { string } hls_url -
+ * @property { string } duration -
+ * @property { number } height -
+ * @property { number } width -
+ * @property { string } thumbnail -
+ * @property { Object.<reddit_video: Object.<fallback_url: string>> } media -
+ */
+
+/**
+ * @param { postJSON } postJSON - Raw Reddit JSON from GET
+ * @returns { extracted_data } Extracted details from the Reddit JSON
  */
 const GetPostDetailsFromJSON = (postJSON) => {
   const data = postJSON;
@@ -201,13 +222,13 @@ const GetPostDetailsFromJSON = (postJSON) => {
   const score = data.score;
   const videoURL = data?.media?.reddit_video?.fallback_url;
   const audioURL = videoURL?.replace(DASH_regex, "DASH_audio");
-  const dashURL = data?.dash_url;
+  const hlsURL = data?.hls_url;
   const duration = data?.duration;
   const height = data?.height;
   const width = data?.width;
   const thumbnail = data?.thumbnail;
 
-  return (extracted_data = {
+  return {
     OP,
     OP_id,
     archived,
@@ -215,18 +236,19 @@ const GetPostDetailsFromJSON = (postJSON) => {
     score,
     videoURL,
     audioURL,
-    dashURL,
+    hlsURL,
     duration,
     height,
     width,
-    thumbnail
-  });
+    thumbnail,
+  };
 };
 
 /**
- * Transform NEW Redditpost scrapes
+ * Transform NEW Redditpost scrapes in DB
  * into Chromaprofiles
  * or mark the scrape REJECTED
+ * @returns {{ scrapes_queued: number, posts_analyzed: number, profiles_imported: number }} info on success
  */
 const ProcessNewRedditPosts = async () => {
   // get all the new posts waiting to be processed from the scrapes DB
@@ -237,35 +259,39 @@ const ProcessNewRedditPosts = async () => {
     posts_analyzed = 0,
     scrapes_queued = 0;
 
+  /** @type { Redditpost[] } */
   let redditposts = await GetUnprocessedPostsFromDB();
   scrapes_queued = redditposts?.length; // Total scrapes we're starting with
   console.log("Scrapes Queued for Processing: ", scrapes_queued);
 
-  // loop until we run out of scrapes or hit a 403
+  // loop until we run out of scrapes or hit a 403, shift instead of forEach because we need to stop if 403
   while (redditposts && redditposts.length > 0 && !retry_error) {
-    // shift instead of forEach because we need to stop if 403
+    /** @type { Redditpost } */
     const scrapedRedditpost = redditposts.shift();
     console.log(
-      `scrapedRedditpost id: ${scrapedRedditpost.id36}\ntitle: ${scrapedRedditpost.title}`
+      `scrapedRedditpost id: ${scrapedRedditpost.id36}`,
+      `title: ${scrapedRedditpost.title}`
     );
 
+    /** @type { { updatedRedditpost: Redditpost, profiles: *[] } } */
     const { updatedRedditpost, profiles: rawProfiles } =
       await ProcessRedditpost(scrapedRedditpost);
+
     // insert any newly found profiles into DB, then update the Redditpost with profiles._ids returned
     const profiles = await (async (newProfiles) => {
-      // quick passthrough return empty array if there were no profiles here
+      // quick pass through return empty array if there were no profiles here
       if (newProfiles.length <= 0) return [];
       // happy path = there are profiles, lets insert them
-      // give profile a redditpost so we can insert into DB
+      // give profile a redditpost, so we can insert into DB
       const insertableProfiles = newProfiles.map((profile) => ({
         redditpost: scrapedRedditpost._id,
-        ...profile
+        ...profile,
       }));
 
       let profile_ids = []; // array of profile id's
       try {
         profile_ids = await Chromaprofile.insertMany(insertableProfiles, {
-          ordered: false
+          ordered: false,
         });
         console.log(insertableProfiles, " ...profiles saved...");
       } catch (e) {

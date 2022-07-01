@@ -9,6 +9,8 @@ const { ProcessNewRedditPosts } = require("./reddit-scraper");
 const Chromaprofile = require("./models/chromaprofile.js");
 const Redditpost = require("./models/redditpost.js");
 
+const ConvertChromaprofileLinks = require("./convert-chromaprofile-links");
+
 const PORT = process.env.PORT;
 
 app.use(cors());
@@ -50,15 +52,15 @@ app.get("/api/profiles", async (request, response) => {
       from: "chromaprofiles",
       localField: "profiles",
       foreignField: "_id",
-      as: "profiles"
-    }
+      as: "profiles",
+    },
   };
   // props.ids
   const matchId36 = request.query.id36
     ? {
         $match: {
-          id36: { $in: [].concat(request.query.id36) }
-        }
+          id36: { $in: [].concat(request.query.id36) },
+        },
       }
     : null;
   // props.after
@@ -78,24 +80,24 @@ app.get("/api/profiles", async (request, response) => {
   const matchDevices = request.query.devices
     ? {
         $match: {
-          "profiles.devices": { $in: [].concat(request.query.devices) }
-        }
+          "profiles.devices": { $in: [].concat(request.query.devices) },
+        },
       }
     : null;
   // props.colours
   const matchColours = request.query.colours
     ? {
         $match: {
-          "profiles.colours": { $in: [].concat(request.query.colours) }
-        }
+          "profiles.colours": { $in: [].concat(request.query.colours) },
+        },
       }
     : null;
   // props.effects
   const matchEffects = request.query.effects
     ? {
         $match: {
-          "profiles.effects": { $in: [].concat(request.query.effects) }
-        }
+          "profiles.effects": { $in: [].concat(request.query.effects) },
+        },
       }
     : null;
 
@@ -125,7 +127,7 @@ app.get("/api/profiles", async (request, response) => {
     : null;
   // props.limit
   const limit = {
-    $limit: request.query.limit ? Number(request.query.limit) : 25
+    $limit: request.query.limit ? Number(request.query.limit) : 25,
   };
 
   let aggregation = [
@@ -141,8 +143,9 @@ app.get("/api/profiles", async (request, response) => {
     matchScore,
     sort,
     skip,
-    limit
-  ].filter((match) => match != null);
+    limit,
+  ].filter(Boolean);
+  // ].filter((match) => match != null);
 
   console.log(aggregation);
 
@@ -152,13 +155,37 @@ app.get("/api/profiles", async (request, response) => {
   response.json(profiles);
 });
 
+/**
+ * Scrapes Pushshift and inserts all new submissions to MongoDB via
+ */
 app.get("/api/scrapepushshift", async (request, response) => {
-  // *** need to change from_utc to the last created_utc found in DB
-  const fromDate = new Date(2017, 11);
-  let from_utc = fromDate.getTime() / 1000;
-  console.log(`Scraping Pushshift.io from ${fromDate.toDateString()}`);
+  // If the database is empty, this is the oldest date to scrape pushshift from
+  const fixedOldestDate = new Date(2017, 11);
+  const fixedOldestDate_utc = fixedOldestDate.getTime() / 1000;
+
+  // find newest post in DB, and extract its created_utc
+  const newestDocumentsArray = await Redditpost.find({})
+    .sort({ created_utc: -1 })
+    .limit(1)
+    .exec();
+
+  const newest_created_utc = newestDocumentsArray
+    .shift()
+    .toObject().created_utc;
+
+  // use the fixedOldestDate or the newest created_utc in DB
+  let from_utc =
+    newest_created_utc && newest_created_utc > fixedOldestDate_utc
+      ? newest_created_utc
+      : fixedOldestDate_utc;
+
+  // Display String for Console.log
+  const dateString = new Date(from_utc * 1000).toDateString();
+  console.log(`Scraping Pushshift.io from ${dateString}`);
+
+  // noinspection ES6RedundantAwait
   let scrapeCount = await ScrapePushshift({
-    from_utc
+    from_utc,
   });
 
   console.log(`Scrape Count returned: ${scrapeCount}`);
