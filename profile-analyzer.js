@@ -249,17 +249,17 @@ const AnalyzeXMLFile = async (xmlfile) => {
 
 const ColorToHex = (color) => {
   let hex = color.toString(16);
-  return hex.length == 1 ? "0" + hex : hex;
+  return hex.length === 1 ? "0" + hex : hex;
 };
 
 const ConvertRGBtoHex = ({ red, green, blue }) =>
   "#" + ColorToHex(red) + ColorToHex(green) + ColorToHex(blue);
 
 /***
- * Extract the .ChromaProfile file
+ * Extract a ".Chromaeffects" file
  * @param { string } source - filename to extract
  * @param { string } target - target directory
- * @returns { Array } filenames of the extracted files
+ * @returns { string[] } filenames of the extracted files
  */
 const ExtractProfile = async (source, target) => {
   try {

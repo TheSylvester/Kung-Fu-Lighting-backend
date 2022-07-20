@@ -4,12 +4,26 @@ const app = express();
 const cors = require("cors");
 const mongo = require("./services/mongo.js");
 
-const { ScrapePushshift } = require("./pushshift-scraper");
-const { ProcessNewRedditPosts } = require("./reddit-scraper");
-const Chromaprofile = require("./models/chromaprofile.js");
-const Redditpost = require("./models/redditpost.js");
+const {
+  InsertManyRedditposts,
+  InsertManyCommentLinks,
+  GetLatestRedditpostUTC,
+  GetUnProcessedRedditposts,
+  GetLiveRedditposts,
+  UpdateRedditpostsAsDone,
+  UpdateCommentLink,
+  GetNewCommentLinks,
+  InsertChromaprofile,
+  UpsertRedditPost,
+  GetChromaprofiles,
+} = require("./services/kflconnect");
 
-const ConvertChromaprofileLinks = require("./convert-chromaprofile-links");
+const { GetAllPushshiftAsReddit } = require("./services/pushshift");
+const { GetUpdatedRedditposts } = require("./services/reddit");
+const {
+  CommentLinksFromRedditposts,
+  AnalyzeCommentLink,
+} = require("./link-analyzer");
 
 const PORT = process.env.PORT;
 
@@ -45,135 +59,147 @@ app.listen(PORT, () => {
  * @returns profiles - Array of Chromaprofiles
  */
 app.get("/api/profiles", async (request, response) => {
-  // we start with "only posts that are import_status: "OK" and populate profiles
-  const matchDefault = { $match: { import_status: "OK" } };
-  const lookup_populate_profiles = {
-    $lookup: {
-      from: "chromaprofiles",
-      localField: "profiles",
-      foreignField: "_id",
-      as: "profiles",
-    },
-  };
-  // props.ids
-  const matchId36 = request.query.id36
-    ? {
-        $match: {
-          id36: { $in: [].concat(request.query.id36) },
-        },
-      }
-    : null;
-  // props.after
-  const matchAfter = request.query.after
-    ? { $match: { created_utc: { $gte: Number(request.query.after) } } }
-    : null;
-  // props.before
-  const matchBefore = request.query.before
-    ? { $match: { created_utc: { $lte: Number(request.query.before) } } }
-    : null;
+  response.json(await GetChromaprofiles(request.query));
+});
 
-  // props.author
-  const matchAuthor = request.query.author
-    ? { $match: { OP: request.query.author } }
-    : null;
-  // props.devices
-  const matchDevices = request.query.devices
-    ? {
-        $match: {
-          "profiles.devices": { $in: [].concat(request.query.devices) },
-        },
-      }
-    : null;
-  // props.colours
-  const matchColours = request.query.colours
-    ? {
-        $match: {
-          "profiles.colours": { $in: [].concat(request.query.colours) },
-        },
-      }
-    : null;
-  // props.effects
-  const matchEffects = request.query.effects
-    ? {
-        $match: {
-          "profiles.effects": { $in: [].concat(request.query.effects) },
-        },
-      }
-    : null;
+/***************************************************************************** */
+/** ROUTES **/
 
-  // props.matchScore_above/below
-  const { sign, score } = request.query.score_above
-    ? { sign: "$gte", score: Number(request.query.score_above) }
-    : request.query.score_below
-    ? { sign: "$lte", score: Number(request.query.score_below) }
-    : { sign: null, score: null };
-  const matchScore = sign ? { $match: { score: { [sign]: score } } } : null;
-
-  // props.sort_order
-  const sort_order =
-    { asc: 1, desc: -1 }[request.query.sort_order ?? "asc"] || 1;
-  // props.sort_by
-  const sort = ((sort_type) => {
-    const sortable_types = ["created_utc", "score"];
-    const type = sortable_types.includes(sort_type ?? "")
-      ? sort_type
-      : "created_utc";
-
-    return { $sort: { [type]: sort_order } };
-  })(request.query.sort_by);
-  // props.skip
-  const skip = request.query.skip
-    ? { $skip: Number(request.query.skip) }
-    : null;
-  // props.limit
-  const limit = {
-    $limit: request.query.limit ? Number(request.query.limit) : 25,
-  };
-
-  let aggregation = [
-    matchDefault,
-    lookup_populate_profiles,
-    matchId36,
-    matchAfter,
-    matchBefore,
-    matchAuthor,
-    matchDevices,
-    matchColours,
-    matchEffects,
-    matchScore,
-    sort,
-    skip,
-    limit,
-  ].filter(Boolean);
-  // ].filter((match) => match != null);
-
-  console.log(aggregation);
-
-  // get profiles from db
-  const profiles = await Redditpost.aggregate(aggregation);
-
-  response.json(profiles);
+app.get("/api/scrape-and-analyze", async (request, response) => {
+  const results = await ScrapeAndAnalyze();
+  console.log(`Scrape and Analyze Results: `, results);
+  response.json(results);
 });
 
 /**
- * Scrapes Pushshift and inserts all new submissions to MongoDB via
+ * Scrapes /r/Chromaprofiles/ via Pushshift.io for posts not already in our collection
+ * seeks all video posts and inserts all new submissions to kflconnect
+ * @returns { JSON } responds with all posts newly inserted
  */
-app.get("/api/scrapepushshift", async (request, response) => {
+app.get("/api/scrape-pushshift", async (request, response) => {
+  const inserted = await ScrapePushShiftToKFL();
+  console.log(`Scraped ${inserted.length} new posts`);
+  response.json(inserted);
+});
+
+app.get("/api/find-new-links", async (request, response) => {
+  const numLinks = await FindNewLinks();
+  console.log(`Found ${numLinks} new Links`);
+  response.json(numLinks);
+});
+
+app.get("/api/analyze-new-links", async (request, response) => {
+  const result = await AnalyzeNewLinks();
+  console.log(`Analyzed new links and inserted ${result} new Chromaprofiles`);
+  response.json(result);
+});
+
+app.get("/api/refresh-redditposts", async (request, response) => {
+  const result = await RefreshRedditPosts();
+  console.log(`Refreshed ${result} Redditposts`);
+  response.json(result);
+});
+
+/*****************************************************************************
+ * ### RefreshRedditPosts ###
+ * Gets all Redditposts that need to be refreshed
+ * Refreshes, and updates each one AND related Chromaprofiles
+ * @returns {Promise<number>} Number of Redditposts refreshed
+ */
+async function RefreshRedditPosts() {
+  const postsToUpdate = await GetLiveRedditposts();
+  console.log("postsToUpdate: ", postsToUpdate);
+  const updatedRedditposts = await GetUpdatedRedditposts(postsToUpdate);
+  console.log("updatedRedditposts: ", updatedRedditposts);
+  const results = await Promise.all(
+    updatedRedditposts.map(async (post) => await UpsertRedditPost(post))
+  );
+  return results.length;
+}
+
+/**
+ * ### ScrapeAndAnalyze ###
+ * Scrape new Redditposts from Pushshift,
+ * find all new CommentLinks from all new Redditposts,
+ * analyze every NEW CommentLink for new Chromaprofiles
+ * @returns { scraped: number, linked: number, profiled: number  }
+ * number of posts scraped, links found, and chromaprofiles created
+ */
+async function ScrapeAndAnalyze() {
+  const inserted = await ScrapePushShiftToKFL();
+  console.log(`Scraped ${inserted.length} new posts`);
+  const numLinks = await FindNewLinks();
+  console.log(`Found ${numLinks} new Links`);
+  const result = await AnalyzeNewLinks();
+  console.log(`Analyzed new links and inserted ${result} new Chromaprofiles`);
+  return { scraped: inserted.length, linked: numLinks, profiled: result };
+}
+
+/**
+ * ### FindNewLinks ###
+ * Takes all Redditposts with the status NEW / UPDATED and
+ * finds new OPCommentLinks not already in CommentLinks DB Collection
+ * Inserts them into DB Collection
+ * @returns {Promise<number>} number of new links found
+ */
+async function FindNewLinks() {
+  const redditposts = await GetUnProcessedRedditposts(); // get NEW / UPDATED redditposts from DB
+  const links = CommentLinksFromRedditposts(redditposts);
+  const result = await InsertManyCommentLinks(links);
+  await UpdateRedditpostsAsDone(redditposts);
+  return result;
+}
+
+/**
+ * ### AnalyzeNewLinks ###
+ * Checks CommentLinks for all links marked NEW or RETRY
+ * Analyze each CommentLink and attempts to download from their original_url
+ * @returns {Promise<number>}
+ */
+const AnalyzeNewLinks = async () => {
+  /** @type { CommentLink[] } */
+  const links = await GetNewCommentLinks(); // get CommentLink[] of link_status: NEW or RETRY
+  /** Logging */
+  console.log(
+    links.length + " Links from GetNewCommentLinks(): ",
+    links.map((x) => x.link_status + " " + x.original_link)
+  );
+  let profileCount = 0; // keep track of # of profiles inserted in the for loop
+  // using for loop with await here
+  for (let link of links) {
+    const { updatedCommentLink, chromaprofileStub } = await AnalyzeCommentLink(
+      link
+    );
+    // update the commentlink
+    await UpdateCommentLink(updatedCommentLink);
+    // if there's a chromaprofileStub then insert it
+    if (
+      chromaprofileStub?.lightingeffects?.length > 0 &&
+      chromaprofileStub?.download_link !== ""
+    ) {
+      (await InsertChromaprofile(chromaprofileStub)) ? ++profileCount : null;
+    }
+
+    // break clause if RETRY triggered
+    if (updatedCommentLink.link_status === "RETRY") break;
+  }
+  return profileCount;
+};
+
+/**
+ * Scrapes /r/Chromaprofiles/ via Pushshift.io for posts not already in our collection
+ * seeks all video posts and inserts all new submissions to kflconnect
+ * @returns { Array } responds with all posts newly inserted
+ */
+const ScrapePushShiftToKFL = async () => {
   // If the database is empty, this is the oldest date to scrape pushshift from
   const fixedOldestDate = new Date(2017, 11);
   const fixedOldestDate_utc = fixedOldestDate.getTime() / 1000;
 
-  // find newest post in DB, and extract its created_utc
-  const newestDocumentsArray = await Redditpost.find({})
-    .sort({ created_utc: -1 })
-    .limit(1)
-    .exec();
+  const newest_created_utc = await GetLatestRedditpostUTC();
 
-  const newest_created_utc = newestDocumentsArray
-    .shift()
-    .toObject().created_utc;
-
-  // use the fixedOldestDate or the newest created_utc in DB
+  // use the fixedOldestDate or the newest created_utc in DB as the "after"
+  // oldest post we get from Pushshift is fixed at after 11/2017 (synapse 3 release)
   let from_utc =
     newest_created_utc && newest_created_utc > fixedOldestDate_utc
       ? newest_created_utc
@@ -183,20 +209,11 @@ app.get("/api/scrapepushshift", async (request, response) => {
   const dateString = new Date(from_utc * 1000).toDateString();
   console.log(`Scraping Pushshift.io from ${dateString}`);
 
-  // noinspection ES6RedundantAwait
-  let scrapeCount = await ScrapePushshift({
-    from_utc,
-  });
+  // get new posts from Pushshift,
+  // then get the newest version of those posts from reddit
+  const newPosts = await GetAllPushshiftAsReddit({ after: from_utc });
+  const updatedPosts = await GetUpdatedRedditposts(newPosts);
 
-  console.log(`Scrape Count returned: ${scrapeCount}`);
-
-  response.json(scrapeCount);
-});
-
-app.get("/api/processnewredditposts", async (request, response) => {
-  console.log("Processing NEW/RETRY Reddit posts");
-  const { scrapes_queued, posts_analyzed, profiles_imported } =
-    await ProcessNewRedditPosts();
-
-  response.json({ scrapes_queued, posts_analyzed, profiles_imported });
-});
+  // insert to Reddit
+  return await InsertManyRedditposts(updatedPosts);
+};
