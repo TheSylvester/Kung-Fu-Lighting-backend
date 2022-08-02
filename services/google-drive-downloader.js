@@ -17,9 +17,9 @@ const MAX_FILE_SIZE = 3000000;
  */
 function GetFileIdFromGDriveLink(url) {
   const drive_regexps = [
-    /(?:https:\/\/drive\.google\.com\/file\/d\/)(.*)(?:\/view)/gi,
+    /(?:https:\/\/drive\.google\.com\/file\/d\/)(.*)(?:\/)/gi,
     /(?:https:\/\/drive\.google\.com\/open\?id=)(.*)$/gi,
-    /(?:https:\/\/drive\.google\.com\/uc\?id=)(.*)&export=download/gi,
+    /(?:https:\/\/drive\.google\.com\/uc\?id=)(.*)&export=/gi,
   ];
 
   return drive_regexps

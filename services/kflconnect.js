@@ -356,10 +356,12 @@ const InflateChromaprofile = (newProfileStub, redditpost) => {
  * @param props.after - Default: N/A - Return results created [from] after this created_UTC
  * @param props.before - Default: N/A - Return results created [to] before this created_UTC
  *
- * @param props.author - Default: N/A - Return results filtered by author
- * @param props.devices - Default: N/A - Return results filtered by devices
- * @param props.colours - Default: N/A - Return results filtered by colours (exact)
- * @param props.effects - Default: N/A - Return results filtered by effects
+ * @param props.author - Default: N/A - Search for author
+ * @param props.devices - Default: N/A - Search for devices
+ * @param props.colours - Default: N/A - Search for colours (exact)
+ * @param props.effects - Default: N/A - Search for effects
+ *
+ * @param props.tag - Default: N/A - Search for tag
  *
  * @param props.score_above - Default: N/A - Return results with score above this
  * @param props.score_below - Default: N/A - Return results with score below this
@@ -369,7 +371,7 @@ const InflateChromaprofile = (newProfileStub, redditpost) => {
  * @param props.skip - Default: 0 - Number of results to skip for pagination purposes
  * @param props.limit - Default: 25 - Number of results to return
  *
- * @returns profiles - Array of Chromaprofiles
+ * @returns { Chromaprofile[] } - Array of Chromaprofiles
  */
 const GetChromaprofiles = async (props) => {
   // we start with "only posts that are import_status: "OK" and populate profiles
@@ -418,6 +420,13 @@ const GetChromaprofiles = async (props) => {
       }
     : null;
 
+  //props.tag
+  const matchTag = props.tag
+    ? {
+        $match: { "tags.tag": props.tag },
+      }
+    : null;
+
   // props.matchScore_above/below
   const { sign, score } = props.score_above
     ? { sign: "$gte", score: Number(props.score_above) }
@@ -453,6 +462,7 @@ const GetChromaprofiles = async (props) => {
     matchDevices,
     matchColours,
     matchEffects,
+    matchTag,
     matchScore,
     sort,
     skip,
@@ -465,6 +475,58 @@ const GetChromaprofiles = async (props) => {
   return await Chromaprofile.aggregate(aggregation);
 };
 
+const GetFeaturedProfiles = async () => {
+  return await GetChromaprofiles({ tag: "featured" });
+};
+
+/**
+ * Finds a profile by its id36 and adds a tag to its tags[]
+ * @param { string } id36
+ * @param { string } tag
+ * @param { string } description
+ * @returns { Promise<Chromaprofile> }
+ */
+const AddTagToProfile = async (id36, tag, description) => {
+  return await Chromaprofile.findOneAndUpdate(
+    { id36 },
+    {
+      $addToSet: { tags: { tag, description } },
+    },
+    { returnDocument: "after" }
+  );
+};
+
+/**
+ * Returns the latest created_utc Chromaprofile
+ * @returns { Chromaprofile }
+ */
+const GetLatestProfile = async () => {
+  /** @type Chromaprofile[] */
+  const latest_results = await GetChromaprofiles({ limit: 1 });
+  return Array.isArray(latest_results) ? latest_results[0] : null;
+};
+
+/**
+ * Finds all tags with the tag and description and updates their tags away
+ * @param { {[tag=""]: string, [description=""]: string } } props
+ * @returns { Chromaprofile }
+ */
+const RemoveAllTags = async ({ tag, description }) => {
+  return await Chromaprofile.updateMany(
+    {},
+    {
+      $pull: {
+        tags: {
+          tag,
+          description: { $regex: description },
+        },
+      },
+    },
+    { returnDocument: "after" }
+  );
+};
+
+exports.GetFeaturedProfiles = GetFeaturedProfiles;
 exports.InsertManyRedditposts = InsertManyRedditposts;
 exports.UpsertRedditPost = UpsertRedditpost;
 exports.GetLatestRedditpostUTC = GetLatestRedditpostUTC;
@@ -476,3 +538,6 @@ exports.UpdateCommentLink = UpdateCommentLink;
 exports.GetNewCommentLinks = GetNewCommentLinks;
 exports.InsertChromaprofile = InsertChromaprofile;
 exports.GetChromaprofiles = GetChromaprofiles;
+exports.GetLatestProfile = GetLatestProfile;
+exports.AddTagToProfile = AddTagToProfile;
+exports.RemoveAllTags = RemoveAllTags;

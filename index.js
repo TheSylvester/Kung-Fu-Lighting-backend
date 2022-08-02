@@ -16,6 +16,9 @@ const {
   InsertChromaprofile,
   UpsertRedditPost,
   GetChromaprofiles,
+  GetLatestProfile,
+  AddTagToProfile,
+  RemoveAllTags,
 } = require("./services/kflconnect");
 
 const { GetAllPushshiftAsReddit } = require("./services/pushshift");
@@ -43,10 +46,12 @@ app.listen(PORT, () => {
  * @param props.after - Default: N/A - Return results created [from] after this created_UTC
  * @param props.before - Default: N/A - Return results created [to] before this created_UTC
  *
- * @param props.author - Default: N/A - Return results filtered by author
- * @param props.devices - Default: N/A - Return results filtered by devices
- * @param props.colours - Default: N/A - Return results filtered by colours (exact)
- * @param props.effects - Default: N/A - Return results filtered by effects
+ * @param props.author - Default: N/A - Search for author
+ * @param props.devices - Default: N/A - Search for devices
+ * @param props.colours - Default: N/A - Search for colours (exact)
+ * @param props.effects - Default: N/A - Search for effects
+ *
+ * @param props.tag - Default: N/A - Search for tag
  *
  * @param props.score_above - Default: N/A - Return results with score above this
  * @param props.score_below - Default: N/A - Return results with score below this
@@ -56,7 +61,7 @@ app.listen(PORT, () => {
  * @param props.skip - Default: 0 - Number of results to skip for pagination purposes
  * @param props.limit - Default: 25 - Number of results to return
  *
- * @returns profiles - Array of Chromaprofiles
+ * @returns { Chromaprofile[] } - Array of Chromaprofiles
  */
 app.get("/api/profiles", async (request, response) => {
   response.json(await GetChromaprofiles(request.query));
@@ -68,6 +73,12 @@ app.get("/api/profiles", async (request, response) => {
 app.get("/api/scrape-and-analyze", async (request, response) => {
   const results = await ScrapeAndAnalyze();
   console.log(`Scrape and Analyze Results: `, results);
+  response.json(results);
+});
+
+app.get("/api/tag-featured-profiles", async (request, response) => {
+  const results = await TagFeaturedProfiles();
+  console.log(`tag-featured-profiles Results: `, results);
   response.json(results);
 });
 
@@ -99,6 +110,70 @@ app.get("/api/refresh-redditposts", async (request, response) => {
   console.log(`Refreshed ${result} Redditposts`);
   response.json(result);
 });
+
+/**
+ * Finds the top scoring Chromaprofile created_UTC in the month previous
+ * adds Tag
+ * Finds the same Tag anywhere else in Chromaprofiles and removes that tag
+ * @returns { Promise<Chromaprofile[]> }
+ */
+const TagFeaturedProfiles = async () => {
+  // Newest Profile
+  await RemoveAllTags({ tag: "featured", description: "Newest Profile" });
+  const latest = await GetLatestProfile();
+  const tagged_latest = await AddTagToProfile(
+    latest.id36,
+    "featured",
+    "Newest Profile"
+  );
+
+  // POTM
+  await RemoveAllTags({ tag: "featured", description: "Profile of the Month" });
+  // Find the month that the latest profile was made in,
+  const fullYear = new Date().getFullYear();
+  const month = new Date(latest.created_utc * 1000).getMonth();
+  const firstOfMonth = Math.floor(new Date(fullYear, month, 1) / 1000);
+  // then find the earliest created profile created in the calendar month before the latest
+  const potmFirstCandidates = await GetChromaprofiles({
+    before: firstOfMonth,
+    limit: 1,
+  });
+  const GetMonthName = (dt) =>
+    new Date(dt).toLocaleString("en-us", { month: "long" });
+  // That's the month we're hosting the POTM in
+  const potmMonth = new Date(
+    potmFirstCandidates[0].created_utc * 1000
+  ).getMonth();
+  const potmFirstOfMonth = Math.floor(new Date(fullYear, potmMonth, 1) / 1000);
+  const potmFirstNextMonth = Math.floor(
+    new Date(fullYear, potmMonth + 1, 1) / 1000
+  );
+  const potmAllCandidates = await GetChromaprofiles({
+    after: potmFirstOfMonth,
+    before: potmFirstNextMonth,
+    sort_by: "score",
+  });
+  const tagged_potm = await AddTagToProfile(
+    potmAllCandidates[0].id36,
+    "featured",
+    "Profile of the Month " + GetMonthName(potmFirstOfMonth * 1000)
+  );
+
+  // Highest Rated Profile Ever
+  await RemoveAllTags({ tag: "featured", description: "Highest Rated Ever" });
+  const goatProfiles = await GetChromaprofiles({
+    sort_by: "score",
+    limit: 1,
+  });
+  const tagged_goat = await AddTagToProfile(
+    goatProfiles[0].id36,
+    "featured",
+    "Highest Rated Ever"
+  );
+
+  // console.log(potmAllCandidates);
+  return [tagged_latest, tagged_potm, tagged_goat];
+};
 
 /*****************************************************************************
  * ### RefreshRedditPosts ###

@@ -8,8 +8,8 @@ const { Schema } = mongoose;
  * @property { string } download_link - User downloadable URL, whatever new url archived
  * @property { number } local_likes - non-reddit likes
  * @property { Lightingeffect[] } lightingeffects - all lighting effects found in the file
- * @property { Array<{ tag: string, description: string }> } tags - Tags i.e. {tag: "featured"}
  * @property { string }  profile_status - OK, DELETED_REDDIT, DELETED_PROFILE
+ * @property { Array<{ tag: string, description: string }> } tags - Tags i.e. {tag: "featured"}
  * ** DUPLICATED FIELDS **
  * @property { ObjectId } redditpost_id - *NEW* Object ID of the original Redditpost that generated this profile
  * @property { string } id36 - Reddit post id
