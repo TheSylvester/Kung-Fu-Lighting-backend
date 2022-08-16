@@ -1,4 +1,10 @@
 /**
+ * @type {number} - Default limit of number of profiles to show
+ */
+const DEFAULT_LIMIT = 100;
+const SORT_BY_TYPES = ["created_utc", "score"];
+
+/**
  * this is the Database Manager
  * responsible for handling all interactions with the MongoDB
  */
@@ -352,14 +358,21 @@ const InflateChromaprofile = (newProfileStub, redditpost) => {
  * GET /api/profiles
  * returns chroma profiles
  *
+ * -----------------------
+ * Can MongoDB tell me the actual # of valid found items even if the # is over the LIMIT
+ *
  * @param props.id36 - Default: N/A - id36's - Returns specific profiles by id36
  * @param props.after - Default: N/A - Return results created [from] after this created_UTC
  * @param props.before - Default: N/A - Return results created [to] before this created_UTC
  *
+ * @param props.all - Default: N/A - SPECIAL Search for name OR title OR author
+ *
  * @param props.author - Default: N/A - Search for author
- * @param props.devices - Default: N/A - Search for devices
- * @param props.colours - Default: N/A - Search for colours (exact)
- * @param props.effects - Default: N/A - Search for effects
+ * @param props.title - Default: N/A - Search for reddit post title ("description" in chroma gallery)
+ * @param props.profileName - Default: N/A - Search for profile name
+ * @param props.devices[] - Default: N/A - Search for devices
+ * @param props.colours[] - Default: N/A - Search for colours (exact)
+ * @param props.effects[] - Default: N/A - Search for effects
  *
  * @param props.tag - Default: N/A - Search for tag
  *
@@ -369,110 +382,129 @@ const InflateChromaprofile = (newProfileStub, redditpost) => {
  * @param props.sort_order - Default: "desc" - Sort results in a specific order (Accepted: "asc", "desc")
  * @param props.sort_by - Default: "created_utc" - property to sort by (Accepted: "created_utc", "score", "author", "title")
  * @param props.skip - Default: 0 - Number of results to skip for pagination purposes
- * @param props.limit - Default: 25 - Number of results to return
+ * @param props.limit - Default: 100 - Number of results to return
  *
  * @returns { Chromaprofile[] } - Array of Chromaprofiles
  */
 const GetChromaprofiles = async (props) => {
   // we start with "only posts that are import_status: "OK" and populate profiles
   const matchDefault = { $match: { profile_status: "OK" } };
-  // props.ids
-  const matchId36 = props.id36
-    ? {
-        $match: {
-          id36: { $in: [].concat(props.id36) },
-        },
-      }
-    : null;
-  // props.after
-  const matchAfter = props.after
-    ? { $match: { created_utc: { $gte: Number(props.after) } } }
-    : null;
-  // props.before
-  const matchBefore = props.before
-    ? { $match: { created_utc: { $lte: Number(props.before) } } }
-    : null;
 
-  // props.author
-  const matchAuthor = props.author ? { $match: { OP: props.author } } : null;
-  // props.devices
-  const matchDevices = props.devices
-    ? {
-        $match: {
-          "lightingeffects.devices": { $in: [].concat(props.devices) },
-        },
-      }
-    : null;
-  // props.colours
-  const matchColours = props.colours
-    ? {
-        $match: {
-          "lightingeffects.colours": { $in: [].concat(props.colours) },
-        },
-      }
-    : null;
-  // props.effects
-  const matchEffects = props.effects
-    ? {
-        $match: {
-          "lightingeffects.effects": { $in: [].concat(props.effects) },
-        },
-      }
-    : null;
-
-  //props.tag
-  const matchTag = props.tag
-    ? {
-        $match: { "tags.tag": props.tag },
-      }
-    : null;
-
-  // props.matchScore_above/below
-  const { sign, score } = props.score_above
-    ? { sign: "$gte", score: Number(props.score_above) }
-    : props.score_below
-    ? { sign: "$lte", score: Number(props.score_below) }
-    : { sign: null, score: null };
-  const matchScore = sign ? { $match: { score: { [sign]: score } } } : null;
-
-  // props.sort_order
-  const sort_order = { asc: 1, desc: -1 }[props.sort_order ?? "desc"] || 1;
-  // props.sort_by
-  const sort = ((sort_type) => {
-    const sortable_types = ["created_utc", "score"];
-    const type = sortable_types.includes(sort_type ?? "")
-      ? sort_type
-      : "created_utc";
-
-    return { $sort: { [type]: sort_order } };
-  })(props.sort_by);
-  // props.skip
-  const skip = props.skip ? { $skip: Number(props.skip) } : null;
-  // props.limit
-  const limit = {
-    $limit: props.limit ? Number(props.limit) : 25,
+  const matchOrNull = (fn, input) => {
+    return input ? fn(input) : null;
   };
+
+  // props.ids
+  const matchId36 = (id36) => ({
+    $match: { id36: { $in: [].concat(id36) } },
+  });
+  // props.after
+  const matchAfter = (after) => ({
+    $match: { created_utc: { $gte: Number(after) } },
+  });
+  // props.before
+  const matchBefore = (before) => ({
+    $match: { created_utc: { $lte: Number(before) } },
+  });
+  // props.author
+  const matchAuthor = (author) => ({
+    $match: { OP: { $regex: author, $options: "i" } },
+  });
+  // props.title
+  const matchTitle = (title) => ({
+    $match: { title: { $regex: title, $options: "i" } },
+  });
+  // props.profileName
+  const matchName = (profileName) => ({
+    $match: {
+      "lightingeffects.name": { $regex: profileName, $options: "i" },
+    },
+  });
+  const matchAll = (all) => ({
+    $match: {
+      $or: [
+        { OP: { $regex: all, $options: "i" } },
+        { title: { $regex: all, $options: "i" } },
+        { "lightingeffects.name": { $regex: all, $options: "i" } },
+      ],
+    },
+  });
+  // props.devices
+  const matchDevices = (devices) => ({
+    $match: {
+      "lightingeffects.devices": { $all: [].concat(devices) },
+    },
+  });
+  // props.colours
+  const matchColours = (colours) => ({
+    $match: {
+      "lightingeffects.colours": { $in: [].concat(colours) },
+    },
+  });
+  // props.effects
+  const matchEffects = (effects) => ({
+    $match: {
+      "lightingeffects.effects": { $in: [].concat(effects) },
+    },
+  });
+  //props.tag
+  const matchTag = (tag) => ({
+    $match: { "tags.tag": tag },
+  });
+  //props.score_above
+  const matchScoreAbove = (score) => ({
+    $match: { score: { $gte: Number(score) } },
+  });
+  //props.score_below
+  const matchScoreBelow = (score) => ({
+    $match: { score: { $lte: Number(score) } },
+  });
+  // props.sort_by, props.sort_order
+  const sort = (sort_by = "created_utc", sort_order = "desc") => ({
+    $sort: {
+      [SORT_BY_TYPES.includes(sort_by) ? sort_by : "created_utc"]:
+        sort_order === "asc" ? 1 : -1,
+    },
+  });
+  // props.skip
+  const skip = (skip) => ({ $skip: Number(skip) });
+  // props.limit
+  const limit = (limit = DEFAULT_LIMIT) => ({
+    $limit: Number(limit),
+  });
+
+  // ADD MATCH OR NULL!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
   let aggregation = [
     matchDefault,
-    matchId36,
-    matchAfter,
-    matchBefore,
-    matchAuthor,
-    matchDevices,
-    matchColours,
-    matchEffects,
-    matchTag,
-    matchScore,
-    sort,
-    skip,
-    limit,
+    matchOrNull(matchId36, props.id36),
+    matchOrNull(matchAfter, props.after),
+    matchOrNull(matchBefore, props.before),
+    matchOrNull(matchAll, props.all),
+    matchOrNull(matchAuthor, props.author),
+    matchOrNull(matchTitle, props.title),
+    matchOrNull(matchName, props.profileName),
+    matchOrNull(matchDevices, props.devices),
+    matchOrNull(matchColours, props.colours),
+    matchOrNull(matchEffects, props.effects),
+    matchOrNull(matchTag, props.tag),
+    matchOrNull(matchScoreAbove, props.score_above),
+    matchOrNull(matchScoreBelow, props.score_below),
+    sort(props.sort_by, props.sort_order),
+    matchOrNull(skip, props.skip),
+    limit(props.limit),
   ].filter(Boolean);
 
   console.log(aggregation);
 
   // get profiles from db
   return await Chromaprofile.aggregate(aggregation);
+};
+
+const GetDevicesAndEffects = async () => {
+  const devices = await Chromaprofile.distinct("lightingeffects.devices");
+  const effects = await Chromaprofile.distinct("lightingeffects.effects");
+  return { devices, effects };
 };
 
 const GetFeaturedProfiles = async () => {
@@ -527,6 +559,7 @@ const RemoveAllTags = async ({ tag, description }) => {
 };
 
 exports.GetFeaturedProfiles = GetFeaturedProfiles;
+exports.GetDevicesAndEffects = GetDevicesAndEffects;
 exports.InsertManyRedditposts = InsertManyRedditposts;
 exports.UpsertRedditPost = UpsertRedditpost;
 exports.GetLatestRedditpostUTC = GetLatestRedditpostUTC;

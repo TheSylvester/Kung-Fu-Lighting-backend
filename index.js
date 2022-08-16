@@ -2,7 +2,11 @@ require("dotenv").config();
 const express = require("express");
 const app = express();
 const cors = require("cors");
-const mongo = require("./services/mongo.js");
+const { connectKFLDB } = require("./services/mongo.js");
+
+(async () => {
+  await connectKFLDB();
+})();
 
 const {
   InsertManyRedditposts,
@@ -19,6 +23,7 @@ const {
   GetLatestProfile,
   AddTagToProfile,
   RemoveAllTags,
+  GetDevicesAndEffects,
 } = require("./services/kflconnect");
 
 const { GetAllPushshiftAsReddit } = require("./services/pushshift");
@@ -67,8 +72,13 @@ app.get("/api/profiles", async (request, response) => {
   response.json(await GetChromaprofiles(request.query));
 });
 
+app.get("/api/get-devices-and-effects", async (request, response) => {
+  const result = await GetDevicesAndEffects();
+  response.json(result);
+});
+
 /***************************************************************************** */
-/** ROUTES **/
+/** OTHER ROUTES **/
 
 app.get("/api/scrape-and-analyze", async (request, response) => {
   const results = await ScrapeAndAnalyze();
