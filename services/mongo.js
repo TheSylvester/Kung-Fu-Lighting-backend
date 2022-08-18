@@ -13,6 +13,8 @@ const connectKFLDB = async () => {
   }
 };
 
-(async () => {
-  await connectKFLDB();
-})();
+// (async () => {
+//   await connectKFLDB();
+// })();
+
+exports.connectKFLDB = connectKFLDB;
