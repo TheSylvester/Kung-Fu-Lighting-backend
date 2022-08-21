@@ -502,8 +502,31 @@ const GetChromaprofiles = async (props) => {
 };
 
 const GetDevicesAndEffects = async () => {
-  const devices = await Chromaprofile.distinct("lightingeffects.devices");
-  const effects = await Chromaprofile.distinct("lightingeffects.effects");
+  const results = await Chromaprofile.aggregate([
+    {
+      $facet: {
+        devices: [
+          { $unwind: "$lightingeffects" },
+          { $unwind: "$lightingeffects.devices" },
+          { $group: { _id: "$lightingeffects.devices" } },
+        ],
+        effects: [
+          { $unwind: "$lightingeffects" },
+          { $unwind: "$lightingeffects.effects" },
+          { $group: { _id: "$lightingeffects.effects" } },
+        ],
+      },
+    },
+  ]);
+
+  const devices = results[0].devices.map((obj) => obj._id);
+  const effects = results[0].effects.map((obj) => obj._id);
+
+  console.log(devices, effects);
+
+  // const devices = results.map((r) => r.devices._id);
+  // const effects = results.map((r) => r.effects._id);
+
   return { devices, effects };
 };
 
