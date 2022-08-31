@@ -34,6 +34,7 @@ const {
 } = require("./link-analyzer");
 
 const PORT = process.env.PORT;
+const POTM_COUNT = 6;
 
 app.use(cors());
 
@@ -92,6 +93,12 @@ app.get("/api/tag-featured-profiles", async (request, response) => {
   response.json(results);
 });
 
+app.get("/api/test", async (request, response) => {
+  const results = await Test();
+  console.log(`Test Results: `, results);
+  response.json(results);
+});
+
 /**
  * Scrapes /r/Chromaprofiles/ via Pushshift.io for posts not already in our collection
  * seeks all video posts and inserts all new submissions to kflconnect
@@ -121,6 +128,18 @@ app.get("/api/refresh-redditposts", async (request, response) => {
   response.json(result);
 });
 
+const Test = async () => {
+  console.log("Hi there test");
+  const firstOfMonthTimestamp = Math.floor(new Date(2022, 7, 1) / 1000);
+  const endOfMonthTimestamp = Math.floor(new Date(2022, 8, 1) / 1000); // 1st of next month, actually
+  return await GetChromaprofiles({
+    after: firstOfMonthTimestamp,
+    before: endOfMonthTimestamp,
+    sort_by: "score",
+    limit: 1,
+  });
+};
+
 /**
  * Finds the top scoring Chromaprofile created_UTC in the month previous
  * adds Tag
@@ -138,36 +157,62 @@ const TagFeaturedProfiles = async () => {
   );
 
   // POTM
-  await RemoveAllTags({ tag: "featured", description: "Profile of the Month" });
-  // Find the month that the latest profile was made in,
-  const fullYear = new Date().getFullYear();
-  const month = new Date(latest.created_utc * 1000).getMonth();
-  const firstOfMonth = Math.floor(new Date(fullYear, month, 1) / 1000);
-  // then find the earliest created profile created in the calendar month before the latest
-  const potmFirstCandidates = await GetChromaprofiles({
-    before: firstOfMonth,
-    limit: 1,
-  });
-  const GetMonthName = (dt) =>
-    new Date(dt).toLocaleString("en-us", { month: "long" });
-  // That's the month we're hosting the POTM in
-  const potmMonth = new Date(
-    potmFirstCandidates[0].created_utc * 1000
-  ).getMonth();
-  const potmFirstOfMonth = Math.floor(new Date(fullYear, potmMonth, 1) / 1000);
-  const potmFirstNextMonth = Math.floor(
-    new Date(fullYear, potmMonth + 1, 1) / 1000
-  );
-  const potmAllCandidates = await GetChromaprofiles({
-    after: potmFirstOfMonth,
-    before: potmFirstNextMonth,
-    sort_by: "score",
-  });
-  const tagged_potm = await AddTagToProfile(
-    potmAllCandidates[0].id36,
-    "featured",
-    "Profile of the Month " + GetMonthName(potmFirstOfMonth * 1000)
-  );
+  await RemoveAllTags({ tag: "featured", description: "Profile of the Month" }); // reset
+
+  // to find the POTM in the month / year indicated by the timestamp
+  async function GetPOTM(year, month) {
+    const firstOfMonthTimestamp = Math.floor(new Date(year, month, 1) / 1000);
+    const endOfMonthTimestamp = Math.floor(new Date(year, month + 1, 1) / 1000); // 1st of next month, actually
+    return await GetChromaprofiles({
+      after: firstOfMonthTimestamp,
+      before: endOfMonthTimestamp,
+      sort_by: "score",
+      limit: 1,
+    });
+  }
+
+  // find the POTM that is from minimum one month before timestamp
+  async function FindLastPOTMFrom(timestamp) {
+    let result = [];
+    let i = 1;
+
+    while (result.length === 0) {
+      let date = new Date(timestamp);
+      result = await GetPOTM(date.getFullYear(), date.getMonth() - i);
+      i++;
+    }
+    return result[0];
+  }
+
+  async function FindPOTMs(startTimestamp, count) {
+    let POTMs = [];
+    for (let i = 0; i < count; i++) {
+      POTMs.push(
+        await FindLastPOTMFrom(
+          i === 0 ? startTimestamp : POTMs[i - 1].created_utc * 1000
+        )
+      );
+    }
+    return POTMs;
+  }
+
+  // actually tag the POTMs
+  async function TagPOTM(profile) {
+    const GetMonthName = (dt) =>
+      new Date(dt).toLocaleString("en-us", { month: "long" });
+    return await AddTagToProfile(
+      profile.id36,
+      "featured",
+      "Profile of the Month " + GetMonthName(profile.created_utc * 1000)
+    );
+  }
+
+  // now we can actually get and tag all the POTMs
+  const POTMs = await FindPOTMs(latest.created_utc * 1000, POTM_COUNT);
+  let tagged_potm = [];
+  for (let p of POTMs) {
+    tagged_potm.push(await TagPOTM(p));
+  }
 
   // Highest Rated Profile Ever
   await RemoveAllTags({ tag: "featured", description: "Highest Rated Ever" });
@@ -181,8 +226,7 @@ const TagFeaturedProfiles = async () => {
     "Highest Rated Ever"
   );
 
-  // console.log(potmAllCandidates);
-  return [tagged_latest, tagged_potm, tagged_goat];
+  return [tagged_latest, ...tagged_potm, tagged_goat];
 };
 
 /*****************************************************************************

@@ -477,25 +477,25 @@ const GetChromaprofiles = async (props) => {
 
   let aggregation = [
     matchDefault,
-    matchOrNull(matchId36, props.id36),
-    matchOrNull(matchAfter, props.after),
-    matchOrNull(matchBefore, props.before),
-    matchOrNull(matchAll, props.all),
-    matchOrNull(matchAuthor, props.author),
-    matchOrNull(matchTitle, props.title),
-    matchOrNull(matchName, props.profileName),
-    matchOrNull(matchDevices, props.devices),
-    matchOrNull(matchColours, props.colours),
-    matchOrNull(matchEffects, props.effects),
-    matchOrNull(matchTag, props.tag),
-    matchOrNull(matchScoreAbove, props.score_above),
-    matchOrNull(matchScoreBelow, props.score_below),
-    sort(props.sort_by, props.sort_order),
-    matchOrNull(skip, props.skip),
-    limit(props.limit),
+    matchOrNull(matchId36, props?.id36),
+    matchOrNull(matchAfter, props?.after),
+    matchOrNull(matchBefore, props?.before),
+    matchOrNull(matchAll, props?.all),
+    matchOrNull(matchAuthor, props?.author),
+    matchOrNull(matchTitle, props?.title),
+    matchOrNull(matchName, props?.profileName),
+    matchOrNull(matchDevices, props?.devices),
+    matchOrNull(matchColours, props?.colours),
+    matchOrNull(matchEffects, props?.effects),
+    matchOrNull(matchTag, props?.tag),
+    matchOrNull(matchScoreAbove, props?.score_above),
+    matchOrNull(matchScoreBelow, props?.score_below),
+    sort(props?.sort_by, props?.sort_order),
+    matchOrNull(skip, props?.skip),
+    limit(props?.limit),
   ].filter(Boolean);
 
-  console.log(aggregation);
+  // console.log(aggregation);
 
   // get profiles from db
   return await Chromaprofile.aggregate(aggregation);
