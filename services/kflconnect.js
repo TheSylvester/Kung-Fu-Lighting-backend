@@ -531,7 +531,7 @@ const GetDevicesAndEffects = async () => {
 };
 
 const GetFeaturedProfiles = async () => {
-  return await GetChromaprofiles({ tag: "featured" });
+  return await GetChromaprofiles({ tag: "featured", limit: 20 });
 };
 
 /**
