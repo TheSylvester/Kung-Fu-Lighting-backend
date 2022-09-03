@@ -3,6 +3,7 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 const { connectKFLDB } = require("./services/mongo.js");
+const cron = require("node-cron");
 
 (async () => {
   await connectKFLDB();
@@ -93,12 +94,6 @@ app.get("/api/tag-featured-profiles", async (request, response) => {
   response.json(results);
 });
 
-app.get("/api/test", async (request, response) => {
-  const results = await Test();
-  console.log(`Test Results: `, results);
-  response.json(results);
-});
-
 /**
  * Scrapes /r/Chromaprofiles/ via Pushshift.io for posts not already in our collection
  * seeks all video posts and inserts all new submissions to kflconnect
@@ -128,17 +123,32 @@ app.get("/api/refresh-redditposts", async (request, response) => {
   response.json(result);
 });
 
-const Test = async () => {
-  console.log("Hi there test");
-  const firstOfMonthTimestamp = Math.floor(new Date(2022, 7, 1) / 1000);
-  const endOfMonthTimestamp = Math.floor(new Date(2022, 8, 1) / 1000); // 1st of next month, actually
-  return await GetChromaprofiles({
-    after: firstOfMonthTimestamp,
-    before: endOfMonthTimestamp,
-    sort_by: "score",
-    limit: 1,
-  });
-};
+/****
+ * Scheduling Scrape-and-Analyze, tag-featured-profiles, and refresh-redditposts
+ */
+cron.schedule("*/2 * * * *", () => {
+  console.log(
+    `## Scheduled Task Running (every 2min) at ${new Date().toLocaleString()}`
+  );
+  (async function () {
+    const result = await RefreshRedditPosts();
+    console.log(`Refreshed ${result} Redditposts`);
+  })();
+});
+cron.schedule("*/15 * * * *", () => {
+  console.log(
+    `## Scheduled Task Running (every 15min) at ${new Date().toLocaleString()}`
+  );
+  (async function () {
+    let scraped = await ScrapeAndAnalyze();
+    console.log(`Scrape and Analyze Results: `, scraped);
+    let tagged = await TagFeaturedProfiles();
+    console.log(
+      `Tag-Featured-Profiles Results: `,
+      tagged.map((p) => `${p.id36} ${p.title} tags: ${p.tags}`)
+    );
+  })();
+});
 
 /**
  * Finds the top scoring Chromaprofile created_UTC in the month previous
@@ -147,6 +157,7 @@ const Test = async () => {
  * @returns { Promise<Chromaprofile[]> }
  */
 const TagFeaturedProfiles = async () => {
+  console.log("### TagFeaturedProfiles started ", new Date().toLocaleString());
   // Newest Profile
   await RemoveAllTags({ tag: "featured", description: "Newest Profile" });
   const latest = await GetLatestProfile();
@@ -236,10 +247,18 @@ const TagFeaturedProfiles = async () => {
  * @returns {Promise<number>} Number of Redditposts refreshed
  */
 async function RefreshRedditPosts() {
+  console.log("### RefreshRedditPosts started ", new Date().toLocaleString());
+
   const postsToUpdate = await GetLiveRedditposts();
-  console.log("postsToUpdate: ", postsToUpdate);
+  // console.log(
+  //   "postsToUpdate: ",
+  //   postsToUpdate.map((p) => `${p.id36} ${p.title}`)
+  // );
   const updatedRedditposts = await GetUpdatedRedditposts(postsToUpdate);
-  console.log("updatedRedditposts: ", updatedRedditposts);
+  console.log(
+    "updatedRedditposts: ",
+    updatedRedditposts.map((p) => `${p.id36} ${p.title}`)
+  );
   const results = await Promise.all(
     updatedRedditposts.map(async (post) => await UpsertRedditPost(post))
   );
@@ -255,6 +274,8 @@ async function RefreshRedditPosts() {
  * number of posts scraped, links found, and chromaprofiles created
  */
 async function ScrapeAndAnalyze() {
+  console.log("### ScrapeAndAnalyze started ", new Date().toLocaleString());
+
   const inserted = await ScrapePushShiftToKFL();
   console.log(`Scraped ${inserted.length} new posts`);
   const numLinks = await FindNewLinks();
@@ -290,8 +311,8 @@ const AnalyzeNewLinks = async () => {
   const links = await GetNewCommentLinks(); // get CommentLink[] of link_status: NEW or RETRY
   /** Logging */
   console.log(
-    links.length + " Links from GetNewCommentLinks(): ",
-    links.map((x) => x.link_status + " " + x.original_link)
+    links.length + " Links from GetNewCommentLinks()... "
+    // links.map((x) => x.link_status + " " + x.original_link)
   );
   let profileCount = 0; // keep track of # of profiles inserted in the for loop
   // using for loop with await here

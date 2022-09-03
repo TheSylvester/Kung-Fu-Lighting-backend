@@ -73,17 +73,15 @@ const UpsertRedditpost = async (post) => {
     profile_status: post.import_status === "DELETED" ? "DELETED" : "OK",
   };
 
-  // Check if we also need to update a Chromaprofile
-  const updatedChromaprofile = await Chromaprofile.findOneAndUpdate(
-    { id36 },
-    redditFieldsToInject,
-    { returnDocument: "after" }
-  ).exec();
-  if (updatedChromaprofile)
-    console.log("updatedChromaprofile: ", updatedChromaprofile);
+  // update a Chromaprofile
+  await Chromaprofile.findOneAndUpdate({ id36 }, redditFieldsToInject, {
+    returnDocument: "after",
+  }).exec();
+  // if (updatedChromaprofile)
+  //   console.log("updatedChromaprofile: ", updatedChromaprofile);
 
   // returns a Redditpost Object, instead of mongoose document
-  console.log("UpsertRedditpost: ", doc);
+  // console.log("UpsertRedditpost: ", doc);
   return doc.toObject();
 };
 
@@ -519,13 +517,8 @@ const GetDevicesAndEffects = async () => {
     },
   ]);
 
-  const devices = results[0].devices.map((obj) => obj._id);
-  const effects = results[0].effects.map((obj) => obj._id);
-
-  console.log(devices, effects);
-
-  // const devices = results.map((r) => r.devices._id);
-  // const effects = results.map((r) => r.effects._id);
+  const devices = results[0].devices.map((obj) => obj._id).sort();
+  const effects = results[0].effects.map((obj) => obj._id).sort();
 
   return { devices, effects };
 };

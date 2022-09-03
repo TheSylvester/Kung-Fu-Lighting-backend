@@ -114,12 +114,12 @@ const RedditJSONtoRedditpost = (redditJson, commentsJson) => {
   // if the redditpost is deleted (
   const import_status = isDeletedPost(data) ? "DELETED" : "NEW";
 
-  /** logging here */
-  console.log(
-    `${id36}: ${title} by ${OP}\n`,
-    ` reddit: ${link} thumbnail ${thumbnail}\n`,
-    OPcommentLinks
-  );
+  // /** logging here */
+  // console.log(
+  //   `${id36}: ${title} by ${OP}\n`,
+  //   ` reddit: ${link} thumbnail ${thumbnail}\n`,
+  //   OPcommentLinks
+  // );
 
   return /** @type { Redditpost } */ {
     _id,
@@ -216,9 +216,13 @@ const GetLinksFromComments = (comments) => {
  * @returns { Array } links - href of the links
  */
 const ExtractLinksFromMD = (comment) => {
-  const { links } = markdownLinkExtractor(comment, true); // extended output to get raw md to filter out
-  if (!links) return null;
-  return links.map((link) => link.href);
+  try {
+    const links = markdownLinkExtractor(comment); // extended output to get raw md to filter out
+    return !links || !Array.isArray(links) ? [] : links;
+  } catch (e) {
+    console.log("**COMMENT CAUSING CRASH**: ", comment, e);
+    return [];
+  }
 };
 
 /**
