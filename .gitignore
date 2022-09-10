@@ -59,7 +59,6 @@ mongodb-playground copy.mongodb
 scratchrepl.js
 test.html
 
-
-
-
+# exclude the front-end UI build
+build/
 

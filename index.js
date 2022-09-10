@@ -38,6 +38,7 @@ const PORT = process.env.PORT;
 const POTM_COUNT = 6;
 
 app.use(cors());
+app.use(express.static("build"));
 
 app.listen(PORT, () => {
   console.log(`Kung-Fu-Lighting Server running on port ${PORT}`);
@@ -126,18 +127,18 @@ app.get("/api/refresh-redditposts", async (request, response) => {
 /****
  * Scheduling Scrape-and-Analyze, tag-featured-profiles, and refresh-redditposts
  */
-cron.schedule("*/2 * * * *", () => {
+cron.schedule("*/15 * * * *", () => {
   console.log(
-    `## Scheduled Task Running (every 2min) at ${new Date().toLocaleString()}`
+    `## Scheduled Task Running (every 15min) at ${new Date().toLocaleString()}`
   );
   (async function () {
     const result = await RefreshRedditPosts();
     console.log(`Refreshed ${result} Redditposts`);
   })();
 });
-cron.schedule("*/15 * * * *", () => {
+cron.schedule("*/45 * * * *", () => {
   console.log(
-    `## Scheduled Task Running (every 15min) at ${new Date().toLocaleString()}`
+    `## Scheduled Task Running (every 45min) at ${new Date().toLocaleString()}`
   );
   (async function () {
     let scraped = await ScrapeAndAnalyze();
@@ -145,7 +146,7 @@ cron.schedule("*/15 * * * *", () => {
     let tagged = await TagFeaturedProfiles();
     console.log(
       `Tag-Featured-Profiles Results: `,
-      tagged.map((p) => `${p.id36} ${p.title} tags: ${p.tags}`)
+      tagged.map((p) => `${p.id36} ${p.title} tags: ${p.tags.description}`)
     );
   })();
 });
@@ -249,20 +250,25 @@ const TagFeaturedProfiles = async () => {
 async function RefreshRedditPosts() {
   console.log("### RefreshRedditPosts started ", new Date().toLocaleString());
 
-  const postsToUpdate = await GetLiveRedditposts();
-  // console.log(
-  //   "postsToUpdate: ",
-  //   postsToUpdate.map((p) => `${p.id36} ${p.title}`)
-  // );
-  const updatedRedditposts = await GetUpdatedRedditposts(postsToUpdate);
-  console.log(
-    "updatedRedditposts: ",
-    updatedRedditposts.map((p) => `${p.id36} ${p.title}`)
-  );
-  const results = await Promise.all(
-    updatedRedditposts.map(async (post) => await UpsertRedditPost(post))
-  );
-  return results.length;
+  try {
+    const postsToUpdate = await GetLiveRedditposts();
+    // console.log(
+    //   "postsToUpdate: ",
+    //   postsToUpdate.map((p) => `${p.id36} ${p.title}`)
+    // );
+    const updatedRedditposts = await GetUpdatedRedditposts(postsToUpdate);
+    console.log(
+      "updatedRedditposts: ",
+      updatedRedditposts.map((p) => `${p.id36} ${p.title}`)
+    );
+    const results = await Promise.all(
+      updatedRedditposts.map(async (post) => await UpsertRedditPost(post))
+    );
+    return results.length;
+  } catch (e) {
+    console.log("### ERROR in RefreshRedditPosts ###", e);
+    return 0;
+  }
 }
 
 /**

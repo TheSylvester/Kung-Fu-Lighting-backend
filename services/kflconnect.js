@@ -1,7 +1,7 @@
 /**
  * @type {number} - Default limit of number of profiles to show
  */
-const DEFAULT_LIMIT = 100;
+const DEFAULT_LIMIT = 25;
 const SORT_BY_TYPES = ["created_utc", "score"];
 
 /**
