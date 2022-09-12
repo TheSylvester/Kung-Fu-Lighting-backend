@@ -124,6 +124,15 @@ app.get("/api/refresh-redditposts", async (request, response) => {
   response.json(result);
 });
 
+/****** catch all ***********/
+app.get("/*", function (req, res) {
+  res.sendFile(__dirname + "/build/index.html", function (err) {
+    if (err) {
+      res.status(500).send(err);
+    }
+  });
+});
+
 /****
  * Scheduling Scrape-and-Analyze, tag-featured-profiles, and refresh-redditposts
  */
