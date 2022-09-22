@@ -4,6 +4,13 @@ const app = express();
 const cors = require("cors");
 const { connectKFLDB } = require("./services/mongo.js");
 const cron = require("node-cron");
+const cookieParser = require("cookie-parser");
+
+const config_data = require("./config.json");
+
+const SECRET = process.env.SECRET;
+const SERVER_URL = config_data.BACKEND_URL;
+const FRONTEND_URL = config_data.FRONTEND_URL;
 
 (async () => {
   await connectKFLDB();
@@ -25,6 +32,7 @@ const {
   AddTagToProfile,
   RemoveAllTags,
   GetDevicesAndEffects,
+  LoginUser,
 } = require("./services/kflconnect");
 
 const { GetAllPushshiftAsReddit } = require("./services/pushshift");
@@ -33,11 +41,18 @@ const {
   CommentLinksFromRedditposts,
   AnalyzeCommentLink,
 } = require("./link-analyzer");
+const {
+  GetAccessToken,
+  GetRedditUser,
+  GetUserFromToken,
+} = require("./services/reddit-auth");
+const jwt = require("jsonwebtoken");
 
 const PORT = process.env.PORT;
 const POTM_COUNT = 6;
 
 app.use(cors());
+app.use(cookieParser());
 app.use(express.static("build"));
 
 app.listen(PORT, () => {
@@ -75,6 +90,112 @@ app.get("/api/profiles", async (request, response) => {
   response.json(await GetChromaprofiles(request.query));
 });
 
+app.get("/oauth/redirect", async (request, response) => {
+  console.log("/oauth/redirect?code=", request.query?.code);
+
+  const homepage = FRONTEND_URL;
+  const code = request.query?.code;
+  // guard clause, no code early exit
+  if (!code) {
+    console.log("- no code", request.query?.code);
+    response
+      .clearCookie("chroma_gallery_token", { httpOnly: true })
+      .redirect(homepage);
+    return;
+  }
+  const { access_token, refresh_token } = await GetAccessToken(code);
+  if (!access_token) {
+    console.log("- no token");
+    response
+      .clearCookie("chroma_gallery_token", { httpOnly: true })
+      .redirect(homepage);
+    return;
+  }
+
+  const user = await GetRedditUser({ access_token, refresh_token });
+
+  // guard clause, user authentication failed somehow
+  if (!user || !user.id) {
+    console.log("no user ", user);
+    response
+      .clearCookie("chroma_gallery_token", { httpOnly: true })
+      .redirect(homepage);
+    return;
+  }
+
+  await LoginUser(
+    user.id,
+    user.name,
+    user.snoovatar_img,
+    access_token,
+    refresh_token
+  );
+
+  // noinspection JSCheckFunctionSignatures
+  const signed_jwt_token = jwt.sign({ id: user.id, name: user.name }, SECRET);
+  response
+    .cookie("chroma_gallery_token", signed_jwt_token, {
+      httpOnly: true,
+    })
+    .redirect(homepage);
+});
+
+/**
+ * Checks the cookies (should be from "req.cookies") for chroma_gallery_token
+ * @param cookies
+ * @return { string } token or "" if chroma_gallery_token cookie isn't found
+ */
+const GetTokenFromCookie = (cookies) => {
+  /** @namespace cookies.chroma_gallery_token */
+  console.log(
+    "GetTokenFromCookie cookies ",
+    cookies,
+    " return: ",
+    cookies && cookies.chroma_gallery_token ? cookies.chroma_gallery_token : ""
+  );
+  return cookies && cookies.chroma_gallery_token
+    ? cookies.chroma_gallery_token
+    : "";
+};
+
+app.get("/oauth/user", async (request, response) => {
+  // take the httpOnly cookie from the user with the token, decode, match the userdb
+
+  const token = GetTokenFromCookie(request.cookies);
+
+  // early exit if no cookies / not logged in
+  if (!token) {
+    console.log("/oauth/user response - 404: ", {
+      id: "",
+      name: "",
+      snoovatar_img: "",
+    });
+    response.json({ id: "", name: "", snoovatar_img: "" });
+    return;
+  }
+
+  try {
+    const user = await GetUserFromToken(token);
+    if (!user) {
+      console.log("response: ", { id: "", name: "", snoovatar_img: "" });
+      response.json({ id: "", name: "", snoovatar_img: "" });
+      return;
+    }
+    const { id, name, snoovatar_img } = user;
+    console.log("response: ", { id, name, snoovatar_img });
+    response.json({ id, name, snoovatar_img });
+  } catch (e) {
+    console.log(`${e.message} `);
+    response.json({ id: "", name: "", snoovatar_img: "" });
+  }
+});
+
+app.post("/oauth/logout", async (request, response) => {
+  response
+    .clearCookie("chroma_gallery_token", { httpOnly: true })
+    .redirect(SERVER_URL);
+});
+
 app.get("/api/get-devices-and-effects", async (request, response) => {
   const result = await GetDevicesAndEffects();
   response.json(result);
@@ -97,7 +218,7 @@ app.get("/api/tag-featured-profiles", async (request, response) => {
 
 /**
  * Scrapes /r/Chromaprofiles/ via Pushshift.io for posts not already in our collection
- * seeks all video posts and inserts all new submissions to kflconnect
+ * seeks all video posts and inserts all new submissions to kfl-connect
  * @returns { JSON } responds with all posts newly inserted
  */
 app.get("/api/scrape-pushshift", async (request, response) => {
@@ -129,6 +250,7 @@ app.get("/*", function (req, res) {
   res.sendFile(__dirname + "/build/index.html", function (err) {
     if (err) {
       res.status(500).send(err);
+      console.error("App.GET /* error: ", err);
     }
   });
 });
@@ -155,7 +277,9 @@ cron.schedule("*/45 * * * *", () => {
     let tagged = await TagFeaturedProfiles();
     console.log(
       `Tag-Featured-Profiles Results: `,
-      tagged.map((p) => `${p.id36} ${p.title} tags: ${p.tags.description}`)
+      tagged.map(
+        (p) => `${p.id36} ${p.title} tags: ${p.tags.map((x) => x.description)}`
+      )
     );
   })();
 });
@@ -261,15 +385,11 @@ async function RefreshRedditPosts() {
 
   try {
     const postsToUpdate = await GetLiveRedditposts();
-    // console.log(
-    //   "postsToUpdate: ",
-    //   postsToUpdate.map((p) => `${p.id36} ${p.title}`)
-    // );
     const updatedRedditposts = await GetUpdatedRedditposts(postsToUpdate);
-    console.log(
-      "updatedRedditposts: ",
-      updatedRedditposts.map((p) => `${p.id36} ${p.title}`)
-    );
+    // console.log(
+    //   "updatedRedditposts: ",
+    //   updatedRedditposts.map((p) => `${p.id36} ${p.title}`)
+    // );
     const results = await Promise.all(
       updatedRedditposts.map(async (post) => await UpsertRedditPost(post))
     );
@@ -353,7 +473,7 @@ const AnalyzeNewLinks = async () => {
 
 /**
  * Scrapes /r/Chromaprofiles/ via Pushshift.io for posts not already in our collection
- * seeks all video posts and inserts all new submissions to kflconnect
+ * seeks all video posts and inserts all new submissions to kfl-connect
  * @returns { Array } responds with all posts newly inserted
  */
 const ScrapePushShiftToKFL = async () => {

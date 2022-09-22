@@ -16,6 +16,36 @@ const SORT_BY_TYPES = ["created_utc", "score"];
 const Redditpost = require("../models/redditpost");
 const Commentlink = require("../models/commentlink");
 const Chromaprofile = require("../models/chromaprofile");
+const User = require("../models/user");
+
+/**
+ * LoginUser
+ * Updates an Existing User with new tokens from Reddit or
+ * Creates a new User Profile
+ * @param { String } id - Reddit id
+ * @param { String } name - Reddit name
+ * @param { String } snoovatar_img - Reddit snoovatar_img url
+ * @param { String } access_token -
+ * @param { String } refresh_token -
+ * @returns { User } User as stored in DB
+ */
+const LoginUser = async (
+  id,
+  name,
+  snoovatar_img,
+  access_token,
+  refresh_token
+) => {
+  const user = await User.findOneAndUpdate(
+    { id },
+    { id, name, snoovatar_img, access_token, refresh_token },
+    {
+      upsert: true,
+      returnDocument: "after",
+    }
+  ).exec();
+  return user.toObject();
+};
 
 /**
  * UpsertRedditpost
@@ -590,3 +620,4 @@ exports.GetChromaprofiles = GetChromaprofiles;
 exports.GetLatestProfile = GetLatestProfile;
 exports.AddTagToProfile = AddTagToProfile;
 exports.RemoveAllTags = RemoveAllTags;
+exports.LoginUser = LoginUser;
