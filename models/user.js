@@ -2,6 +2,16 @@ const mongoose = require("mongoose");
 const uniqueValidator = require("mongoose-unique-validator");
 const { Schema } = mongoose;
 
+/**
+ * @typedef { Object } KFLUser
+ * @property { String } id
+ * @property { String } name
+ * @property { String } access_token
+ * @property { String } refresh_token
+ * @property { String } snoovatar_img
+ * @property { Map } votes
+ */
+
 const userSchema = new Schema({
   id: {
     type: String,
@@ -15,12 +25,7 @@ const userSchema = new Schema({
   access_token: String,
   refresh_token: String,
   snoovatar_img: String,
-  votes: [
-    {
-      id36: String,
-      likes: Boolean,
-    },
-  ],
+  votes: { type: Map, of: Boolean },
 });
 
 userSchema.plugin(uniqueValidator);

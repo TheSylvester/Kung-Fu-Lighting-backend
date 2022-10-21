@@ -1,4 +1,4 @@
 {
-  "BACKEND_URL": "https://razerchroma.gallery",
-  "FRONTEND_URL": "https://razerchroma.gallery"
+  "BACKEND_URL": "http://localhost:3001",
+  "FRONTEND_URL": "http://localhost:3000"
 }

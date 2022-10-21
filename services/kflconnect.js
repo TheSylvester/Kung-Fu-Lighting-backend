@@ -36,15 +36,42 @@ const LoginUser = async (
   access_token,
   refresh_token
 ) => {
-  const user = await User.findOneAndUpdate(
-    { id },
-    { id, name, snoovatar_img, access_token, refresh_token },
-    {
-      upsert: true,
-      returnDocument: "after",
-    }
-  ).exec();
-  return user.toObject();
+  const user = await User.findOne({ id }).exec();
+  return user
+    ? await user
+        .updateOne(
+          {
+            id,
+            name,
+            snoovatar_img,
+            access_token,
+            refresh_token,
+          },
+          {
+            returnDocument: "after",
+          }
+        )
+        .exec()
+    : // not using upsert 'cause I need to make new user with empty votes
+      await User.create({
+        id,
+        name,
+        snoovatar_img,
+        access_token,
+        refresh_token,
+        votes: {},
+      });
+};
+
+/**
+ * Returns a User matching the id and name passed in, or null
+ * @param params - Object
+ * @returns { KFLUser }
+ */
+const GetKFLUser = async (params) => {
+  const result = await User.findOne(params).exec(); // User is a MongoDB model using mongoose
+  if (!result) throw Error("No User Found in KFL DB");
+  return result;
 };
 
 /**
@@ -388,6 +415,7 @@ const InflateChromaprofile = (newProfileStub, redditpost) => {
  *
  * -----------------------
  * Can MongoDB tell me the actual # of valid found items even if the # is over the LIMIT
+ * @param props.access_token Default: "" - Attempts to get "likes"
  *
  * @param props.id36 - Default: N/A - id36's - Returns specific profiles by id36
  * @param props.after - Default: N/A - Return results created [from] after this created_UTC
@@ -501,8 +529,6 @@ const GetChromaprofiles = async (props) => {
     $limit: Number(limit),
   });
 
-  // ADD MATCH OR NULL!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
   let aggregation = [
     matchDefault,
     matchOrNull(matchId36, props?.id36),
@@ -523,9 +549,6 @@ const GetChromaprofiles = async (props) => {
     limit(props?.limit),
   ].filter(Boolean);
 
-  // console.log(aggregation);
-
-  // get profiles from db
   return await Chromaprofile.aggregate(aggregation);
 };
 
@@ -604,6 +627,31 @@ const RemoveAllTags = async ({ tag, description }) => {
   );
 };
 
+/**
+ * Locally Vote on a post
+ */
+const LocalLikeProfile = async (id36, value, id) => {
+  await User.updateOne({ id }, { $set: { [`votes.${id36}`]: value } }).exec();
+
+  await Chromaprofile.updateOne(
+    { id36 },
+    { $inc: { local_likes: value } },
+    { returnDocument: "after" }
+  );
+};
+
+const IsRedditpostLocked = async (id36) => {
+  try {
+    const /** @type Chromaprofile */ result = (
+        await Chromaprofile.findOne({ id36: id36.slice(3) }).exec()
+      ).toObject();
+    return Boolean(result.archived || result.locked);
+  } catch (e) {
+    console.log(`IsRedditpostLocked() failed with ${e.message}`);
+    return true;
+  }
+};
+
 exports.GetFeaturedProfiles = GetFeaturedProfiles;
 exports.GetDevicesAndEffects = GetDevicesAndEffects;
 exports.InsertManyRedditposts = InsertManyRedditposts;
@@ -621,3 +669,6 @@ exports.GetLatestProfile = GetLatestProfile;
 exports.AddTagToProfile = AddTagToProfile;
 exports.RemoveAllTags = RemoveAllTags;
 exports.LoginUser = LoginUser;
+exports.GetKFLUser = GetKFLUser;
+exports.LocalLikeProfile = LocalLikeProfile;
+exports.IsRedditpostLocked = IsRedditpostLocked;

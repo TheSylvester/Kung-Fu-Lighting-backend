@@ -250,8 +250,23 @@ const GetUpdatedRedditposts = async (posts) => {
   );
 };
 
+const REDDIT_IDS_ENDPOINT =
+  "https://oauth.reddit.com/r/ChromaProfiles/api/info?id=";
+
+const GetCSVWithAuth = (endpoint) => (token) => async (values) =>
+  axios({
+    method: "GET",
+    url: endpoint + values,
+    headers: {
+      authorization: `bearer ${token}`,
+    },
+  });
+
+const GetRedditIdsWithToken = GetCSVWithAuth(REDDIT_IDS_ENDPOINT);
+
 exports.GetJSONFromRedditId = GetJSONFromRedditId;
 exports.RedditJSONtoRedditpost = RedditJSONtoRedditpost;
 exports.GetOPcommentsFromJSON = GetOPcommentsFromJSON;
 exports.GetRedditpostFromRedditId = GetRedditpostFromRedditId;
 exports.GetUpdatedRedditposts = GetUpdatedRedditposts;
+exports.GetRedditIdsWithToken = GetRedditIdsWithToken;

@@ -33,25 +33,33 @@ const {
   RemoveAllTags,
   GetDevicesAndEffects,
   LoginUser,
+  IsRedditpostLocked,
+  LocalLikeProfile,
 } = require("./services/kflconnect");
 
 const { GetAllPushshiftAsReddit } = require("./services/pushshift");
-const { GetUpdatedRedditposts } = require("./services/reddit");
+const {
+  GetUpdatedRedditposts,
+  GetRedditIdsWithToken,
+} = require("./services/reddit");
 const {
   CommentLinksFromRedditposts,
   AnalyzeCommentLink,
 } = require("./link-analyzer");
 const {
-  GetAccessToken,
+  GetAccessTokenFromCode,
   GetRedditUser,
-  GetUserFromToken,
+  CreateRedditVote,
 } = require("./services/reddit-auth");
 const jwt = require("jsonwebtoken");
+const auth = require("./middlewares/auth");
 
 const PORT = process.env.PORT;
 const POTM_COUNT = 6;
 
 app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(express.static("build"));
 
@@ -86,33 +94,33 @@ app.listen(PORT, () => {
  *
  * @returns { Chromaprofile[] } - Array of Chromaprofiles
  */
-app.get("/api/profiles", async (request, response) => {
-  response.json(await GetChromaprofiles(request.query));
+app.get("/api/profiles", auth, async (request, response) => {
+  const profiles = await GetChromaprofiles(request.query);
+
+  response.json(
+    request.isAuthenticated // IF AUTHENTICATED...
+      ? await GetLikesAsUser(request.user, profiles) // respond WITH LIKES
+      : profiles
+  );
 });
 
 app.get("/oauth/redirect", async (request, response) => {
-  console.log("/oauth/redirect?code=", request.query?.code);
-
   const homepage = FRONTEND_URL;
   const code = request.query?.code;
   // guard clause, no code early exit
   if (!code) {
     console.log("- no code", request.query?.code);
-    response
-      .clearCookie("chroma_gallery_token", { httpOnly: true })
-      .redirect(homepage);
+    Logout(response);
     return;
   }
-  const { access_token, refresh_token } = await GetAccessToken(code);
+  const { access_token, refresh_token } = await GetAccessTokenFromCode(code);
   if (!access_token) {
-    console.log("- no token");
-    response
-      .clearCookie("chroma_gallery_token", { httpOnly: true })
-      .redirect(homepage);
+    console.log("* no token");
+    Logout(response);
     return;
   }
 
-  const user = await GetRedditUser({ access_token, refresh_token });
+  const user = await GetRedditUser({ access_token, refresh_token, LoginUser });
 
   // guard clause, user authentication failed somehow
   if (!user || !user.id) {
@@ -123,14 +131,6 @@ app.get("/oauth/redirect", async (request, response) => {
     return;
   }
 
-  await LoginUser(
-    user.id,
-    user.name,
-    user.snoovatar_img,
-    access_token,
-    refresh_token
-  );
-
   // noinspection JSCheckFunctionSignatures
   const signed_jwt_token = jwt.sign({ id: user.id, name: user.name }, SECRET);
   response
@@ -140,61 +140,33 @@ app.get("/oauth/redirect", async (request, response) => {
     .redirect(homepage);
 });
 
-/**
- * Checks the cookies (should be from "req.cookies") for chroma_gallery_token
- * @param cookies
- * @return { string } token or "" if chroma_gallery_token cookie isn't found
- */
-const GetTokenFromCookie = (cookies) => {
-  /** @namespace cookies.chroma_gallery_token */
-  console.log(
-    "GetTokenFromCookie cookies ",
-    cookies,
-    " return: ",
-    cookies && cookies.chroma_gallery_token ? cookies.chroma_gallery_token : ""
-  );
-  return cookies && cookies.chroma_gallery_token
-    ? cookies.chroma_gallery_token
-    : "";
-};
-
-app.get("/oauth/user", async (request, response) => {
+app.get("/oauth/user", auth, async (request, response) => {
   // take the httpOnly cookie from the user with the token, decode, match the userdb
-
-  const token = GetTokenFromCookie(request.cookies);
-
-  // early exit if no cookies / not logged in
-  if (!token) {
-    console.log("/oauth/user response - 404: ", {
-      id: "",
-      name: "",
-      snoovatar_img: "",
-    });
-    response.json({ id: "", name: "", snoovatar_img: "" });
+  if (!request.isAuthenticated) {
+    response.json({ id: null, name: null, snoovatar_img: null });
     return;
   }
 
-  try {
-    const user = await GetUserFromToken(token);
-    if (!user) {
-      console.log("response: ", { id: "", name: "", snoovatar_img: "" });
-      response.json({ id: "", name: "", snoovatar_img: "" });
-      return;
-    }
-    const { id, name, snoovatar_img } = user;
-    console.log("response: ", { id, name, snoovatar_img });
-    response.json({ id, name, snoovatar_img });
-  } catch (e) {
-    console.log(`${e.message} `);
-    response.json({ id: "", name: "", snoovatar_img: "" });
-  }
+  const { id, name, snoovatar_img } = request.user;
+  response.json({ id, name, snoovatar_img });
 });
 
 app.post("/oauth/logout", async (request, response) => {
-  response
-    .clearCookie("chroma_gallery_token", { httpOnly: true })
-    .redirect(SERVER_URL);
+  Logout(response);
 });
+
+const DeleteCookie = (cookieKey) => (res) =>
+  res.clearCookie(cookieKey, { httpOnly: true });
+const Redirect = (url) => (res) => res.redirect(url);
+
+const DeleteTokenCookie = DeleteCookie("chroma_gallery_token");
+const RedirectHome = Redirect(SERVER_URL);
+
+/**
+ * Deletes the User's Cookie and Redirects to Root URL
+ * @param { object } response the response object used to communicate with the requester
+ */
+const Logout = (response) => RedirectHome(DeleteTokenCookie(response));
 
 app.get("/api/get-devices-and-effects", async (request, response) => {
   const result = await GetDevicesAndEffects();
@@ -243,6 +215,35 @@ app.get("/api/refresh-redditposts", async (request, response) => {
   const result = await RefreshRedditPosts();
   console.log(`Refreshed ${result} Redditposts`);
   response.json(result);
+});
+
+app.post("/oauth/vote", auth, async (request, response) => {
+  if (!request.isAuthenticated) {
+    response.status(401).send("Upvote failed: Unauthorized");
+    return;
+  }
+
+  // console.log(`/oauth/vote ${request.body}`);
+
+  const { id, dir } = request.body;
+  const { user } = request;
+  const VoteAsUser = CreateRedditVote(id, dir);
+
+  const isProfileLocked = await IsRedditpostLocked(id);
+
+  try {
+    const result = isProfileLocked
+      ? await LocalLikeProfile(id, dir, user.id)
+      : await VoteAsUser(user);
+    response.json(result);
+  } catch (e) {
+    if (e.response?.status === 401) {
+      Logout(response);
+    } else {
+      console.log(e.message);
+      response.status(400).send(e.message);
+    }
+  }
 });
 
 /****** catch all ***********/
@@ -501,4 +502,45 @@ const ScrapePushShiftToKFL = async () => {
 
   // insert to Reddit
   return await InsertManyRedditposts(updatedPosts);
+};
+
+/**
+ * Returns a profiles array with a likes property for user's reddit likes
+ * or local likes if the post is archived
+ * @param { KFLUser } user
+ * @param { Chromaprofile[] } profiles
+ * @returns { Chromaprofile[] }
+ */
+const GetLikesAsUser = async (user, profiles) => {
+  const GetCSVIdString = (p) => p.map((x) => `t3_${x.id36}`).join(","); // add the t3_ to id36s
+
+  const profileIds = GetCSVIdString(profiles);
+  const GetRedditIds = GetRedditIdsWithToken(user.access_token);
+
+  try {
+    const redditResponse = await GetRedditIds(profileIds); // full json response
+
+    // creates a likes = { [id36]: likesFromRedditBoolean }
+    // likes { [id]: likesFromRedditBoolean  } is based on live redditResponse OR user.votes[id36]
+    const likes = redditResponse.data.data.children.reduce(
+      (a, b) => ({
+        ...a,
+        [b.data.id]:
+          (b.data.archived || b.data.locked) &&
+          b.data.likes !== null &&
+          b.data.likes !== undefined
+            ? user.votes[b.data.id]
+            : b.data.likes,
+      }),
+      {}
+    );
+    // merge reddit likes with each profile
+    return profiles.map((profile) => {
+      profile.likes = likes[profile.id36];
+      return profile;
+    });
+  } catch (e) {
+    console.error("GetLikesAsUser", e.message);
+    return profiles;
+  }
 };
