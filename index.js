@@ -247,8 +247,8 @@ app.post("/oauth/vote", auth, async (request, response) => {
 });
 
 /****** catch all ***********/
-app.get("/*", function(req, res) {
-  res.sendFile(__dirname + "/build/index.html", function(err) {
+app.get("/*", function (req, res) {
+  res.sendFile(__dirname + "/build/index.html", function (err) {
     if (err) {
       res.status(500).send(err);
       console.error("App.GET /* error: ", err);
@@ -263,7 +263,7 @@ cron.schedule("*/15 * * * *", () => {
   console.log(
     `## Scheduled Task Running (every 15min) at ${new Date().toLocaleString()}`
   );
-  (async function() {
+  (async function () {
     const result = await RefreshRedditPosts();
     console.log(`Refreshed ${result} Redditposts`);
   })();
@@ -272,7 +272,7 @@ cron.schedule("*/45 * * * *", () => {
   console.log(
     `## Scheduled Task Running (every 45min) at ${new Date().toLocaleString()}`
   );
-  (async function() {
+  (async function () {
     let scraped = await ScrapeAndAnalyze();
     console.log(`Scrape and Analyze Results: `, scraped);
     let tagged = await TagFeaturedProfiles();
@@ -523,7 +523,6 @@ const GetLikesAsUser = async (user, profiles) => {
     // creates a likes = { [id36]: likesFromRedditBoolean }
     // likes { [id]: likesFromRedditBoolean  } is based on live redditResponse OR user.votes[id36]
     const likes = redditResponse.data.data.children.reduce((a, b) => {
-
       return {
         ...a,
         [b.data.id]:

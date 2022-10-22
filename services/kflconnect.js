@@ -634,8 +634,8 @@ const LocalLikeProfile = async (id36, value, id) => {
   await User.updateOne({ id }, { $set: { [`votes.${id36}`]: value } }).exec();
 
   await Chromaprofile.updateOne(
-    { id36 },
-    { $inc: { local_likes: value } },
+    { id36: id36.slice(3) },
+    { $inc: { local_likes: value ? 1 : -1 } },
     { returnDocument: "after" }
   );
 };
