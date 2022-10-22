@@ -52,7 +52,7 @@ const LoginUser = async (
           }
         )
         .exec()
-    : // not using upsert 'cause I need to make new user with empty votes
+    : // not using upsert 'cause I need to make new users with empty votes
       await User.create({
         id,
         name,
