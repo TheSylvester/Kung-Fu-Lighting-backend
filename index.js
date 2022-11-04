@@ -1,4 +1,7 @@
-require("dotenv").config();
+if (process.env.NODE_ENV !== "production") {
+  require("dotenv").config();
+}
+
 const express = require("express");
 const app = express();
 const cors = require("cors");
@@ -6,11 +9,9 @@ const { connectKFLDB } = require("./services/mongo.js");
 const cron = require("node-cron");
 const cookieParser = require("cookie-parser");
 
-const config_data = require("./config.json");
-
 const SECRET = process.env.SECRET;
-const SERVER_URL = config_data.BACKEND_URL;
-const FRONTEND_URL = config_data.FRONTEND_URL;
+const SERVER_URL = process.env.BACKEND_URL;
+const FRONTEND_URL = process.env.FRONTEND_URL;
 
 (async () => {
   await connectKFLDB();
@@ -178,13 +179,12 @@ app.get("/api/get-devices-and-effects", async (request, response) => {
 
 app.get("/api/scrape-and-analyze", async (request, response) => {
   const results = await ScrapeAndAnalyze();
-  console.log(`Scrape and Analyze Results: `, results);
   response.json(results);
 });
 
 app.get("/api/tag-featured-profiles", async (request, response) => {
   const results = await TagFeaturedProfiles();
-  console.log(`tag-featured-profiles Results: `, results);
+  // console.log(`tag-featured-profiles Results: `, results);
   response.json(results);
 });
 
@@ -264,8 +264,7 @@ cron.schedule("*/15 * * * *", () => {
     `## Scheduled Task Running (every 15min) at ${new Date().toLocaleString()}`
   );
   (async function () {
-    const result = await RefreshRedditPosts();
-    console.log(`Refreshed ${result} Redditposts`);
+    await RefreshRedditPosts();
   })();
 });
 cron.schedule("*/45 * * * *", () => {
@@ -273,15 +272,8 @@ cron.schedule("*/45 * * * *", () => {
     `## Scheduled Task Running (every 45min) at ${new Date().toLocaleString()}`
   );
   (async function () {
-    let scraped = await ScrapeAndAnalyze();
-    console.log(`Scrape and Analyze Results: `, scraped);
-    let tagged = await TagFeaturedProfiles();
-    console.log(
-      `Tag-Featured-Profiles Results: `,
-      tagged.map(
-        (p) => `${p.id36} ${p.title} tags: ${p.tags.map((x) => x.description)}`
-      )
-    );
+    await ScrapeAndAnalyze();
+    await TagFeaturedProfiles();
   })();
 });
 
@@ -387,10 +379,6 @@ async function RefreshRedditPosts() {
   try {
     const postsToUpdate = await GetLiveRedditposts();
     const updatedRedditposts = await GetUpdatedRedditposts(postsToUpdate);
-    // console.log(
-    //   "updatedRedditposts: ",
-    //   updatedRedditposts.map((p) => `${p.id36} ${p.title}`)
-    // );
     const results = await Promise.all(
       updatedRedditposts.map(async (post) => await UpsertRedditPost(post))
     );
@@ -410,14 +398,14 @@ async function RefreshRedditPosts() {
  * number of posts scraped, links found, and chromaprofiles created
  */
 async function ScrapeAndAnalyze() {
-  console.log("### ScrapeAndAnalyze started ", new Date().toLocaleString());
-
   const inserted = await ScrapePushShiftToKFL();
-  console.log(`Scraped ${inserted.length} new posts`);
   const numLinks = await FindNewLinks();
-  console.log(`Found ${numLinks} new Links`);
   const result = await AnalyzeNewLinks();
-  console.log(`Analyzed new links and inserted ${result} new Chromaprofiles`);
+  console.log(
+    `### ScrapeAndAnalyze started ${new Date().toLocaleString()}`,
+    `${numLinks} new Links, ${inserted.length} new posts, ${result} new Chromaprofiles`
+  );
+
   return { scraped: inserted.length, linked: numLinks, profiled: result };
 }
 
@@ -445,11 +433,6 @@ async function FindNewLinks() {
 const AnalyzeNewLinks = async () => {
   /** @type { CommentLink[] } */
   const links = await GetNewCommentLinks(); // get CommentLink[] of link_status: NEW or RETRY
-  /** Logging */
-  console.log(
-    links.length + " Links from GetNewCommentLinks()... "
-    // links.map((x) => x.link_status + " " + x.original_link)
-  );
   let profileCount = 0; // keep track of # of profiles inserted in the for loop
   // using for loop with await here
   for (let link of links) {

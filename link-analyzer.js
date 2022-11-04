@@ -26,11 +26,12 @@ const PROFILES_DIRECTORY = `./profile-archives/`;
  */
 
 const {
-  /** @type DownloadHandler */ DownloadFromGoogle,
+  /** @type DownloadHandler */ DownloadFromGoogle
 } = require("./services/google-drive-downloader");
 
 /**
- * Takes a Redditpost and checks over all its OPCommentLinks
+ * Returns an array of comment links
+ * from Redditpost based on OPCommentLinks
  * Turns them into new CommentLinks
  * @param { Redditpost } redditpost
  * @returns { CommentLink[] }
@@ -44,7 +45,7 @@ const CommentLinksFromRedditpost = (redditpost) => {
       redditpost_id,
       original_link,
       link_type: "NEW",
-      link_status: "NEW",
+      link_status: "NEW"
     };
   });
 };
@@ -98,7 +99,7 @@ const AnalyzeCommentLink = async (commentlink) => {
     width: 0,
     thumbnail: "",
     profile_status: "",
-    tags: [],
+    tags: []
   };
   /** @type Lightingeffect[] */
   let lightingeffects = [];
@@ -129,7 +130,7 @@ const AnalyzeCommentLink = async (commentlink) => {
       commentlink.link_status === "RETRY" &&
       downloaderResults.download_status === "RETRY"
         ? "RETRY_FAILED" // Double RETRY == RETRY_FAILED
-        : downloaderResults.download_status,
+        : downloaderResults.download_status
   };
 
   // now for the chromaprofileStub
@@ -155,7 +156,7 @@ const AnalyzeCommentLink = async (commentlink) => {
 
   return {
     updatedCommentLink,
-    chromaprofileStub,
+    chromaprofileStub
   };
 };
 
@@ -172,7 +173,7 @@ const DownloadChromaeffectsFile = async (url, downloadHandlers) => {
     download_status: "",
     filename: "",
     link_type: "",
-    download_link: "",
+    download_link: ""
   };
 
   // loop until download_status === "OK" or we've tried all the downloadHandlers
@@ -333,7 +334,7 @@ const AnalyzeXMLFile = async (xmlFile) => {
 
   /* uses Set() to filter out unique colours */
   const colours = [
-    ...new Set(allColours.map((colour) => ConvertRGBtoHex(colour))),
+    ...new Set(allColours.map((colour) => ConvertRGBtoHex(colour)))
   ];
 
   const allEffects = xq
@@ -341,7 +342,7 @@ const AnalyzeXMLFile = async (xmlFile) => {
     .find("Effect")
     .map((effect) => effect.children[0].value);
   const effects = [
-    ...new Set(allEffects.filter((effect) => effect !== "none")),
+    ...new Set(allEffects.filter((effect) => effect !== "none"))
   ];
 
   let name = "";

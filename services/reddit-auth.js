@@ -1,17 +1,16 @@
 const axios = require("axios");
 const querystring = require("querystring");
 const jwt = require("jsonwebtoken");
-// const User = require("../models/user");
-const config = require("../config.json");
+
 const { GetKFLUser } = require("./kflconnect");
 const pipe = require("../utils/pipe");
 
+const BACKEND_URL = process.env.BACKEND_URL;
 const CLIENT_ID = process.env.REDDIT_API_CLIENT_ID;
 const CLIENT_SECRET = process.env.REDDIT_API_SECRET;
 const SECRET = process.env.SECRET;
 const REDDIT_TOKEN_ENDPOINT = "https://www.reddit.com/api/v1/access_token";
 const REDDIT_VOTE_ENDPOINT = "https://oauth.reddit.com/api/vote";
-const BACKEND_URL = config.BACKEND_URL;
 
 /**
  * GetAccessToken from reddit oauth2 using the 'code' provided by reddit

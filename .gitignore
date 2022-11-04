@@ -41,9 +41,6 @@ node_modules/
 # environment variables
 .env
 
-# service key
-kung-fu-lighting-705b8fd37ff2.json
-
 # exclude profile downloads and other downloads
 downloads/
 profile-archives/
@@ -61,4 +58,7 @@ test.html
 
 # exclude the front-end UI build
 build/
+
+# ignore fly build file
+fly.toml
 
