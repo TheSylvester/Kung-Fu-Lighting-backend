@@ -4,8 +4,14 @@ const auth = require("../middlewares/auth");
 const {
   GetChromaprofiles,
   GetDevicesAndEffects,
+  TagFeaturedProfiles,
 } = require("../services/chromaprofiles");
 const { GetLikesAsUser } = require("../services/users");
+const ScrapePushShiftToKFL = require("../controllers/scrapePushShiftToKFL");
+const FindNewLinks = require("../controllers/findNewLinks");
+const RefreshRedditPosts = require("../controllers/refreshRedditPosts");
+const ScrapeAndAnalyze = require("../controllers/scrapeAndAnalyze");
+const AnalyzeNewLinks = require("../controllers/analyzeNewLinks");
 
 /**
  * profiles
@@ -46,6 +52,43 @@ apiRouter.get("/profiles", auth, async (request, response) => {
 
 apiRouter.get("/get-devices-and-effects", async (request, response) => {
   const result = await GetDevicesAndEffects();
+  response.json(result);
+});
+
+/************ Scrape **********/
+
+apiRouter.get("/api/scrape-pushshift", async (request, response) => {
+  const inserted = await ScrapePushShiftToKFL();
+  console.log(`Scraped ${inserted.length} new posts`);
+  response.json(inserted);
+});
+
+apiRouter.get("/api/scrape-and-analyze", async (request, response) => {
+  const results = await ScrapeAndAnalyze();
+  response.json(results);
+});
+
+apiRouter.get("/api/tag-featured-profiles", async (request, response) => {
+  const results = await TagFeaturedProfiles();
+  // console.log(`tag-featured-profiles Results: `, results);
+  response.json(results);
+});
+
+apiRouter.get("/api/find-new-links", async (request, response) => {
+  const numLinks = await FindNewLinks();
+  console.log(`Found ${numLinks} new Links`);
+  response.json(numLinks);
+});
+
+apiRouter.get("/api/analyze-new-links", async (request, response) => {
+  const result = await AnalyzeNewLinks();
+  console.log(`Analyzed new links and inserted ${result} new Chromaprofiles`);
+  response.json(result);
+});
+
+apiRouter.get("/api/refresh-redditposts", async (request, response) => {
+  const result = await RefreshRedditPosts();
+  console.log(`Refreshed ${result} Redditposts`);
   response.json(result);
 });
 

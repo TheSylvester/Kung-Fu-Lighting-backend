@@ -1,6 +1,5 @@
-// const mongo = require("./services/mongo.js");
-const Chromaprofile = require("./models/chromaprofile.js");
-const { GetFileIdFromGDriveLink } = require("./profile-analyzer.js");
+const Chromaprofile = require("../models/chromaprofile.js");
+const GetFileIdFromGDriveLink = require("../utils/getFileIdFromGDriveLink");
 
 const convertLink = (link) => {
   const fileId = GetFileIdFromGDriveLink(link);

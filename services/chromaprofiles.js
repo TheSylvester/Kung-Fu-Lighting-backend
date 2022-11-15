@@ -433,6 +433,5 @@ module.exports = {
   GetChromaprofiles,
   GetLatestProfile,
   AddTagToProfile,
-  RemoveAllTags,
-  IsRedditpostLocked,
+  IsRedditpostLocked
 };
