@@ -58,7 +58,6 @@ const GetAllPushshiftPosts = async ({ after, before }) => {
 
   do {
     jsonArray = await GetPushshiftPosts({ after, before });
-    console.log("Response length: ", jsonArray.length);
     if (jsonArray && jsonArray.length > 0) {
       outputJSON = [...outputJSON, ...jsonArray];
       after = jsonArray[jsonArray.length - 1].created_utc;
@@ -75,53 +74,29 @@ const GetAllPushshiftPosts = async ({ after, before }) => {
 const PsJsonToRedditpost = (psJson) => {
   const data = psJson;
 
-  const title = data.title;
-  const link = `https://www.reddit.com${data.permalink}`;
-  const id36 = data.id;
-  const OP = data.author;
-  const OP_id = data.author_fullname ?? ""; // pushshift doesn't have author_fullname
-  const OPcomments = [];
-  const OPcommentLinks = [];
-  const archived = false; // assume not archived, and update it in details pass
-  const locked = false;
-  const created_utc = data?.created_utc;
-  const scraped_utc = Math.floor(Date.now() / 1000);
-
-  const score = Number(data.score) ?? 0;
-  const videoURL = "";
-  const audioURL = "";
-  const dashURL = "";
-  const duration = 0;
-  const height = 0;
-  const width = 0;
-  const thumbnail = "";
-
-  const profiles = [];
-  const import_status = "NEW"; // [ NEW || COMPLETE || RETRY || DEAD ]
-
   return /** @type { Redditpost } */ {
     _id: null,
-    id36,
-    title,
-    link,
-    OP,
-    OP_id,
-    OPcomments,
-    OPcommentLinks,
-    archived,
-    locked,
-    created_utc,
-    scraped_utc,
-    score,
-    videoURL,
-    audioURL,
-    dashURL,
-    duration,
-    height,
-    width,
-    thumbnail,
-    profiles,
-    import_status,
+    id36: data.id,
+    title: data.title,
+    link: `https://www.reddit.com${data.permalink}`,
+    OP: data.author,
+    OP_id: data.author_fullname ?? "",
+    OPcomments: [],
+    OPcommentLinks: [],
+    archived: false,
+    locked: false,
+    created_utc: data?.created_utc,
+    scraped_utc: Math.floor(Date.now() / 1000),
+    score: Number(data.score) ?? 0,
+    videoURL: "",
+    audioURL: "",
+    dashURL: "",
+    duration: 0,
+    height: 0,
+    width: 0,
+    thumbnail: "",
+    profiles: [],
+    import_status: "NEW",
   };
 };
 
@@ -151,4 +126,4 @@ const GetAllPushshiftAsReddit = async ({ after, before }) => {
   return PsJsonsToRedditposts(allPsJson);
 };
 
-exports.GetAllPushshiftAsReddit = GetAllPushshiftAsReddit;
+module.exports = { GetAllPushshiftAsReddit };

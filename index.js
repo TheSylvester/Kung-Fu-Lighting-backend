@@ -1,3 +1,6 @@
+const ScrapePushShiftToKFL = require("./controllers/scrapePushShiftToKFL");
+const { TagFeaturedProfiles } = require("./services/chromaprofiles");
+
 if (process.env.NODE_ENV !== "production") {
   require("dotenv").config();
 }
@@ -8,7 +11,10 @@ const cors = require("cors");
 const { connectKFLDB } = require("./services/mongo.js");
 const cron = require("node-cron");
 const cookieParser = require("cookie-parser");
+const jwt = require("jsonwebtoken");
 
+// environmental variables
+const PORT = process.env.PORT;
 const SECRET = process.env.SECRET;
 const SERVER_URL = process.env.BACKEND_URL;
 const FRONTEND_URL = process.env.FRONTEND_URL;
@@ -16,47 +22,48 @@ const FRONTEND_URL = process.env.FRONTEND_URL;
 (async () => {
   await connectKFLDB();
 })();
+// utils
+const getSecondsSinceUtcEpoch = require("./utils/getSecondsSinceUtcEpoch");
+
+// services
+const { GetUpdatedRedditposts } = require("./services/reddit");
+const { GetAllPushshiftAsReddit } = require("./services/pushshift");
+
+const {
+  InsertChromaprofile,
+  GetChromaprofiles,
+  GetDevicesAndEffects,
+  IsRedditpostLocked,
+} = require("./services/chromaprofiles");
+
+const { LoginUser, LocalLikeProfile } = require("./services/users");
 
 const {
   InsertManyRedditposts,
-  InsertManyCommentLinks,
   GetLatestRedditpostUTC,
   GetUnProcessedRedditposts,
   GetLiveRedditposts,
   UpdateRedditpostsAsDone,
-  UpdateCommentLink,
-  GetNewCommentLinks,
-  InsertChromaprofile,
-  UpsertRedditPost,
-  GetChromaprofiles,
-  GetLatestProfile,
-  AddTagToProfile,
-  RemoveAllTags,
-  GetDevicesAndEffects,
-  LoginUser,
-  IsRedditpostLocked,
-  LocalLikeProfile,
-} = require("./services/kflconnect");
+  UpsertRedditpost,
+} = require("./services/redditposts");
 
-const { GetAllPushshiftAsReddit } = require("./services/pushshift");
-const {
-  GetUpdatedRedditposts,
-  GetRedditIdsWithToken,
-} = require("./services/reddit");
 const {
   CommentLinksFromRedditposts,
-  AnalyzeCommentLink,
-} = require("./link-analyzer");
+  UpdateCommentLink,
+  GetNewCommentLinks,
+  InsertManyCommentLinks,
+} = require("./services/commentLinks");
+
+const { AnalyzeCommentLink } = require("./link-analyzer");
+
 const {
   GetAccessTokenFromCode,
   GetRedditUser,
   CreateRedditVote,
 } = require("./services/reddit-auth");
-const jwt = require("jsonwebtoken");
-const auth = require("./middlewares/auth");
 
-const PORT = process.env.PORT;
-const POTM_COUNT = 6;
+// middleware
+const auth = require("./middlewares/auth");
 
 app.use(cors());
 app.use(express.json());
@@ -64,46 +71,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(express.static("build"));
 
-app.listen(PORT, () => {
-  console.log(`Kung-Fu-Lighting Server running on port ${PORT}`);
-});
-
-/**
- * profiles
- *---------------------
- * GET /api/profiles
- * returns chroma profiles
- *
- * @param props.id36 - Default: N/A - id36's - Returns specific profiles by id36
- * @param props.after - Default: N/A - Return results created [from] after this created_UTC
- * @param props.before - Default: N/A - Return results created [to] before this created_UTC
- *
- * @param props.author - Default: N/A - Search for author
- * @param props.devices - Default: N/A - Search for devices
- * @param props.colours - Default: N/A - Search for colours (exact)
- * @param props.effects - Default: N/A - Search for effects
- *
- * @param props.tag - Default: N/A - Search for tag
- *
- * @param props.score_above - Default: N/A - Return results with score above this
- * @param props.score_below - Default: N/A - Return results with score below this
- *
- * @param props.sort_order - Default: "desc" - Sort results in a specific order (Accepted: "asc", "desc")
- * @param props.sort_by - Default: "created_utc" - property to sort by (Accepted: "created_utc", "score", "author", "title")
- * @param props.skip - Default: 0 - Number of results to skip for pagination purposes
- * @param props.limit - Default: 25 - Number of results to return
- *
- * @returns { Chromaprofile[] } - Array of Chromaprofiles
- */
-app.get("/api/profiles", auth, async (request, response) => {
-  const profiles = await GetChromaprofiles(request.query);
-
-  response.json(
-    request.isAuthenticated // IF AUTHENTICATED...
-      ? await GetLikesAsUser(request.user, profiles) // respond WITH LIKES
-      : profiles
-  );
-});
+// routes
+const apiRouter = require("./controllers/api");
+app.use("/api/", apiRouter);
 
 app.get("/oauth/redirect", async (request, response) => {
   const homepage = FRONTEND_URL;
@@ -142,7 +112,7 @@ app.get("/oauth/redirect", async (request, response) => {
 });
 
 app.get("/oauth/user", auth, async (request, response) => {
-  // take the httpOnly cookie from the user with the token, decode, match the userdb
+  // take the httpOnly cookie from the user with the token, decode, match the user db
   if (!request.isAuthenticated) {
     response.json({ id: null, name: null, snoovatar_img: null });
     return;
@@ -168,11 +138,6 @@ const RedirectHome = Redirect(SERVER_URL);
  * @param { object } response the response object used to communicate with the requester
  */
 const Logout = (response) => RedirectHome(DeleteTokenCookie(response));
-
-app.get("/api/get-devices-and-effects", async (request, response) => {
-  const result = await GetDevicesAndEffects();
-  response.json(result);
-});
 
 /***************************************************************************** */
 /** OTHER ROUTES **/
@@ -256,116 +221,35 @@ app.get("/*", function (req, res) {
   });
 });
 
-/****
- * Scheduling Scrape-and-Analyze, tag-featured-profiles, and refresh-redditposts
- */
-cron.schedule("*/15 * * * *", () => {
-  console.log(
-    `## Scheduled Task Running (every 15min) at ${new Date().toLocaleString()}`
-  );
-  (async function () {
-    await RefreshRedditPosts();
-  })();
-});
-cron.schedule("*/45 * * * *", () => {
-  console.log(
-    `## Scheduled Task Running (every 45min) at ${new Date().toLocaleString()}`
-  );
-  (async function () {
-    await ScrapeAndAnalyze();
-    await TagFeaturedProfiles();
-  })();
+/**** Create the Server ****/
+app.listen(PORT, () => {
+  console.log(`Kung-Fu-Lighting Server running on port ${PORT}`);
 });
 
-/**
- * Finds the top scoring Chromaprofile created_UTC in the month previous
- * adds Tag
- * Finds the same Tag anywhere else in Chromaprofiles and removes that tag
- * @returns { Promise<Chromaprofile[]> }
- */
-const TagFeaturedProfiles = async () => {
-  console.log("### TagFeaturedProfiles started ", new Date().toLocaleString());
-  // Newest Profile
-  await RemoveAllTags({ tag: "featured", description: "Newest Profile" });
-  const latest = await GetLatestProfile();
-  const tagged_latest = await AddTagToProfile(
-    latest.id36,
-    "featured",
-    "Newest Profile"
-  );
-
-  // POTM
-  await RemoveAllTags({ tag: "featured", description: "Profile of the Month" }); // reset
-
-  // to find the POTM in the month / year indicated by the timestamp
-  async function GetPOTM(year, month) {
-    const firstOfMonthTimestamp = Math.floor(new Date(year, month, 1) / 1000);
-    const endOfMonthTimestamp = Math.floor(new Date(year, month + 1, 1) / 1000); // 1st of next month, actually
-    return await GetChromaprofiles({
-      after: firstOfMonthTimestamp,
-      before: endOfMonthTimestamp,
-      sort_by: "score",
-      limit: 1,
-    });
-  }
-
-  // find the POTM that is from minimum one month before timestamp
-  async function FindLastPOTMFrom(timestamp) {
-    let result = [];
-    let i = 1;
-
-    while (result.length === 0) {
-      let date = new Date(timestamp);
-      result = await GetPOTM(date.getFullYear(), date.getMonth() - i);
-      i++;
-    }
-    return result[0];
-  }
-
-  async function FindPOTMs(startTimestamp, count) {
-    let POTMs = [];
-    for (let i = 0; i < count; i++) {
-      POTMs.push(
-        await FindLastPOTMFrom(
-          i === 0 ? startTimestamp : POTMs[i - 1].created_utc * 1000
-        )
-      );
-    }
-    return POTMs;
-  }
-
-  // actually tag the POTMs
-  async function TagPOTM(profile) {
-    const GetMonthName = (dt) =>
-      new Date(dt).toLocaleString("en-us", { month: "long" });
-    return await AddTagToProfile(
-      profile.id36,
-      "featured",
-      "Profile of the Month " + GetMonthName(profile.created_utc * 1000)
+function ScheduledTasks() {
+  /****
+   * Scheduling Scrape-and-Analyze, tag-featured-profiles, and refresh-redditposts
+   */
+  cron.schedule("*/15 * * * *", () => {
+    console.log(
+      `## Scheduled Task Running (every 15min) at ${new Date().toLocaleString()}`
     );
-  }
-
-  // now we can actually get and tag all the POTMs
-  const POTMs = await FindPOTMs(latest.created_utc * 1000, POTM_COUNT);
-  let tagged_potm = [];
-  for (let p of POTMs) {
-    tagged_potm.push(await TagPOTM(p));
-  }
-
-  // Highest Rated Profile Ever
-  await RemoveAllTags({ tag: "featured", description: "Highest Rated Ever" });
-  const goatProfiles = await GetChromaprofiles({
-    sort_by: "score",
-    limit: 1,
+    (async function () {
+      await RefreshRedditPosts();
+    })();
   });
-  const tagged_goat = await AddTagToProfile(
-    goatProfiles[0].id36,
-    "featured",
-    "Highest Rated Ever"
-  );
+  cron.schedule("*/45 * * * *", () => {
+    console.log(
+      `## Scheduled Task Running (every 45min) at ${new Date().toLocaleString()}`
+    );
+    (async function () {
+      await ScrapeAndAnalyze();
+      await TagFeaturedProfiles();
+    })();
+  });
+}
 
-  return [tagged_latest, ...tagged_potm, tagged_goat];
-};
+ScheduledTasks();
 
 /*****************************************************************************
  * ### RefreshRedditPosts ###
@@ -380,7 +264,7 @@ async function RefreshRedditPosts() {
     const postsToUpdate = await GetLiveRedditposts();
     const updatedRedditposts = await GetUpdatedRedditposts(postsToUpdate);
     const results = await Promise.all(
-      updatedRedditposts.map(async (post) => await UpsertRedditPost(post))
+      updatedRedditposts.map(async (post) => await UpsertRedditpost(post))
     );
     return results.length;
   } catch (e) {
@@ -410,13 +294,16 @@ async function ScrapeAndAnalyze() {
 }
 
 /**
- * ### FindNewLinks ###
+ * Find and Insert new CommentLinks from NEW / UPDATED redditposts
  * Takes all Redditposts with the status NEW / UPDATED and
  * finds new OPCommentLinks not already in CommentLinks DB Collection
  * Inserts them into DB Collection
  * @returns {Promise<number>} number of new links found
  */
 async function FindNewLinks() {
+  // GetUnProcessedRedditposts, CommentLinksFromRedditposts
+  // InsertManyCommentLinks
+  // UpdateRedditpostsAsDone
   const redditposts = await GetUnProcessedRedditposts(); // get NEW / UPDATED redditposts from DB
   const links = CommentLinksFromRedditposts(redditposts);
   const result = await InsertManyCommentLinks(links);
@@ -430,7 +317,7 @@ async function FindNewLinks() {
  * Analyze each CommentLink and attempts to download from their original_url
  * @returns {Promise<number>}
  */
-const AnalyzeNewLinks = async () => {
+async function AnalyzeNewLinks() {
   /** @type { CommentLink[] } */
   const links = await GetNewCommentLinks(); // get CommentLink[] of link_status: NEW or RETRY
   let profileCount = 0; // keep track of # of profiles inserted in the for loop
@@ -453,75 +340,4 @@ const AnalyzeNewLinks = async () => {
     if (updatedCommentLink.link_status === "RETRY") break;
   }
   return profileCount;
-};
-
-/**
- * Scrapes /r/Chromaprofiles/ via Pushshift.io for posts not already in our collection
- * seeks all video posts and inserts all new submissions to kfl-connect
- * @returns { Array } responds with all posts newly inserted
- */
-const ScrapePushShiftToKFL = async () => {
-  // If the database is empty, this is the oldest date to scrape pushshift from
-  const fixedOldestDate = new Date(2017, 11);
-  const fixedOldestDate_utc = fixedOldestDate.getTime() / 1000;
-
-  const newest_created_utc = await GetLatestRedditpostUTC();
-
-  // use the fixedOldestDate or the newest created_utc in DB as the "after"
-  // oldest post we get from Pushshift is fixed at after 11/2017 (synapse 3 release)
-  let from_utc =
-    newest_created_utc && newest_created_utc > fixedOldestDate_utc
-      ? newest_created_utc
-      : fixedOldestDate_utc;
-
-  // Display String for Console.log
-  const dateString = new Date(from_utc * 1000).toDateString();
-  console.log(`Scraping Pushshift.io from ${dateString}`);
-
-  // get new posts from Pushshift,
-  // then get the newest version of those posts from reddit
-  const newPosts = await GetAllPushshiftAsReddit({ after: from_utc });
-  const updatedPosts = await GetUpdatedRedditposts(newPosts);
-
-  // insert to Reddit
-  return await InsertManyRedditposts(updatedPosts);
-};
-
-/**
- * Returns a profiles array with a likes property for user's reddit likes
- * or local likes if the post is archived
- * @param { KFLUser } user
- * @param { Chromaprofile[] } profiles
- * @returns { Chromaprofile[] }
- */
-const GetLikesAsUser = async (user, profiles) => {
-  const GetCSVIdString = (p) => p.map((x) => `t3_${x.id36}`).join(","); // add the t3_ to id36s
-
-  const profileIds = GetCSVIdString(profiles);
-  const GetRedditIds = GetRedditIdsWithToken(user.access_token);
-
-  try {
-    const redditResponse = await GetRedditIds(profileIds); // full json response
-
-    // creates a likes = { [id36]: likesFromRedditBoolean }
-    // likes { [id]: likesFromRedditBoolean  } is based on live redditResponse OR user.votes[id36]
-    const likes = redditResponse.data.data.children.reduce((a, b) => {
-      return {
-        ...a,
-        [b.data.id]:
-          user.votes.get("t3_" + b.data.id) !== undefined
-            ? user.votes.get("t3_" + b.data.id)
-            : b.data.likes,
-      };
-    }, {});
-
-    // merge reddit likes with each profile
-    return profiles.map((profile) => {
-      profile.likes = likes[profile.id36];
-      return profile;
-    });
-  } catch (e) {
-    console.error("GetLikesAsUser", e.message);
-    return profiles;
-  }
-};
+}

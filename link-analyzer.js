@@ -26,37 +26,8 @@ const PROFILES_DIRECTORY = `./profile-archives/`;
  */
 
 const {
-  /** @type DownloadHandler */ DownloadFromGoogle
+  /** @type DownloadHandler */ DownloadFromGoogle,
 } = require("./services/google-drive-downloader");
-
-/**
- * Returns an array of comment links
- * from Redditpost based on OPCommentLinks
- * Turns them into new CommentLinks
- * @param { Redditpost } redditpost
- * @returns { CommentLink[] }
- */
-const CommentLinksFromRedditpost = (redditpost) => {
-  const links = redditpost.OPcommentLinks;
-  const redditpost_id = redditpost._id;
-  return links.map((original_link) => {
-    return {
-      _id: null,
-      redditpost_id,
-      original_link,
-      link_type: "NEW",
-      link_status: "NEW"
-    };
-  });
-};
-
-/**
- * CommentLinksFromRedditposts
- * @param { Redditpost[] } redditposts
- * @returns { CommentLink[] }
- */
-const CommentLinksFromRedditposts = (redditposts) =>
-  redditposts.flatMap((redditpost) => CommentLinksFromRedditpost(redditpost));
 
 /**
  * AnalyzeCommentLink
@@ -69,7 +40,7 @@ const CommentLinksFromRedditposts = (redditposts) =>
  * chromaprofileStub - a Chromaprofile representation of any found .chromaeffects file in commentlink,
  * but it's got null info for the redditpost parts, to be updated on insert
  */
-const AnalyzeCommentLink = async (commentlink) => {
+async function AnalyzeCommentLink(commentlink) {
   // Return Values
   /** @type CommentLink */
   let updatedCommentLink;
@@ -99,7 +70,7 @@ const AnalyzeCommentLink = async (commentlink) => {
     width: 0,
     thumbnail: "",
     profile_status: "",
-    tags: []
+    tags: [],
   };
   /** @type Lightingeffect[] */
   let lightingeffects = [];
@@ -130,7 +101,7 @@ const AnalyzeCommentLink = async (commentlink) => {
       commentlink.link_status === "RETRY" &&
       downloaderResults.download_status === "RETRY"
         ? "RETRY_FAILED" // Double RETRY == RETRY_FAILED
-        : downloaderResults.download_status
+        : downloaderResults.download_status,
   };
 
   // now for the chromaprofileStub
@@ -156,9 +127,9 @@ const AnalyzeCommentLink = async (commentlink) => {
 
   return {
     updatedCommentLink,
-    chromaprofileStub
+    chromaprofileStub,
   };
-};
+}
 
 /**
  * Downloads a .chromaeffects file from url and Returns the DownloaderResult
@@ -173,7 +144,7 @@ const DownloadChromaeffectsFile = async (url, downloadHandlers) => {
     download_status: "",
     filename: "",
     link_type: "",
-    download_link: ""
+    download_link: "",
   };
 
   // loop until download_status === "OK" or we've tried all the downloadHandlers
@@ -199,7 +170,7 @@ const DownloadChromaeffectsFile = async (url, downloadHandlers) => {
  * @param { string } target - target directory
  * @returns { string[] } filenames of the extracted files
  */
-const ExtractProfile = async (source, target) => {
+async function ExtractProfile(source, target) {
   try {
     // await extract(source, { dir: target });
     const extracted = await decompress(source, target);
@@ -212,7 +183,7 @@ const ExtractProfile = async (source, target) => {
     console.log("Extraction Failed: ", err);
     return null;
   }
-};
+}
 
 /**
  * AnalyzeFile - takes a file name and returns lightingeffects[]
@@ -334,7 +305,7 @@ const AnalyzeXMLFile = async (xmlFile) => {
 
   /* uses Set() to filter out unique colours */
   const colours = [
-    ...new Set(allColours.map((colour) => ConvertRGBtoHex(colour)))
+    ...new Set(allColours.map((colour) => ConvertRGBtoHex(colour))),
   ];
 
   const allEffects = xq
@@ -342,7 +313,7 @@ const AnalyzeXMLFile = async (xmlFile) => {
     .find("Effect")
     .map((effect) => effect.children[0].value);
   const effects = [
-    ...new Set(allEffects.filter((effect) => effect !== "none"))
+    ...new Set(allEffects.filter((effect) => effect !== "none")),
   ];
 
   let name = "";
@@ -372,6 +343,4 @@ const ColorToHex = (color) => {
 const ConvertRGBtoHex = ({ red, green, blue }) =>
   "#" + ColorToHex(red) + ColorToHex(green) + ColorToHex(blue);
 
-exports.CommentLinksFromRedditpost = CommentLinksFromRedditpost;
-exports.CommentLinksFromRedditposts = CommentLinksFromRedditposts;
 exports.AnalyzeCommentLink = AnalyzeCommentLink;

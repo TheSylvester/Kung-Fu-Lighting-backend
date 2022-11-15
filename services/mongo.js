@@ -1,5 +1,9 @@
 const mongoose = require("mongoose");
 
+/**
+ * @typedef {import("mongoose").Document} MongoDocument
+ */
+
 const url = process.env.MONGODB_URI;
 
 console.log("connecting to KFLDB");
