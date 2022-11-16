@@ -1,14 +1,10 @@
 const { DownloaderHelper } = require("node-downloader-helper");
 const Bottleneck = require("bottleneck");
-// const jwt = require("jsonwebtoken");
-// const fs = require("fs");
 const axios = require("axios");
 
 const DIRECTORY = `./downloads/`;
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
 const MAX_FILE_SIZE = 3000000;
-
-// const CREDENTIALS_FILE = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
 /**
  * Returns fileId if the url points to a Google Drive document, or ""

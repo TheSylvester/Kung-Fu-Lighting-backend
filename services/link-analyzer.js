@@ -26,8 +26,8 @@ const PROFILES_DIRECTORY = `./profile-archives/`;
  */
 
 const {
-  /** @type DownloadHandler */ DownloadFromGoogle,
-} = require("./services/google-drive-downloader");
+  /** @type DownloadHandler */ DownloadFromGoogle
+} = require("./google-drive-downloader");
 
 /**
  * AnalyzeCommentLink
@@ -70,7 +70,7 @@ async function AnalyzeCommentLink(commentlink) {
     width: 0,
     thumbnail: "",
     profile_status: "",
-    tags: [],
+    tags: []
   };
   /** @type Lightingeffect[] */
   let lightingeffects = [];
@@ -101,7 +101,7 @@ async function AnalyzeCommentLink(commentlink) {
       commentlink.link_status === "RETRY" &&
       downloaderResults.download_status === "RETRY"
         ? "RETRY_FAILED" // Double RETRY == RETRY_FAILED
-        : downloaderResults.download_status,
+        : downloaderResults.download_status
   };
 
   // now for the chromaprofileStub
@@ -127,7 +127,7 @@ async function AnalyzeCommentLink(commentlink) {
 
   return {
     updatedCommentLink,
-    chromaprofileStub,
+    chromaprofileStub
   };
 }
 
@@ -144,7 +144,7 @@ const DownloadChromaeffectsFile = async (url, downloadHandlers) => {
     download_status: "",
     filename: "",
     link_type: "",
-    download_link: "",
+    download_link: ""
   };
 
   // loop until download_status === "OK" or we've tried all the downloadHandlers
@@ -305,7 +305,7 @@ const AnalyzeXMLFile = async (xmlFile) => {
 
   /* uses Set() to filter out unique colours */
   const colours = [
-    ...new Set(allColours.map((colour) => ConvertRGBtoHex(colour))),
+    ...new Set(allColours.map((colour) => ConvertRGBtoHex(colour)))
   ];
 
   const allEffects = xq
@@ -313,7 +313,7 @@ const AnalyzeXMLFile = async (xmlFile) => {
     .find("Effect")
     .map((effect) => effect.children[0].value);
   const effects = [
-    ...new Set(allEffects.filter((effect) => effect !== "none")),
+    ...new Set(allEffects.filter((effect) => effect !== "none"))
   ];
 
   let name = "";

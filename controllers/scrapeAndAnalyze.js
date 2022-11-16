@@ -1,6 +1,6 @@
 const ScrapePushShiftToKFL = require("./scrapePushShiftToKFL");
-const { FindNewLinks } = require("./findNewLinks");
-const { AnalyzeNewLinks } = require("./analyzeNewLinks");
+const FindNewLinks = require("./findNewLinks");
+const AnalyzeNewLinks = require("./analyzeNewLinks");
 
 /**
  * ### ScrapeAndAnalyze ###
